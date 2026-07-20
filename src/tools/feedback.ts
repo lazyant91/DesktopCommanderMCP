@@ -1,7 +1,7 @@
 import { ServerResult } from '../types.js';
 
 export async function giveFeedbackToDesktopCommander(
-  _params: Record<string, never> = {},
+  _params: unknown = {},
 ): Promise<ServerResult> {
   return {
     content: [
