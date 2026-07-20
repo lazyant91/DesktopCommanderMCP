@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-export const GetConfigArgsSchema = z.object({
-  origin: z.enum(['ui', 'llm']).optional(),
-});
+export const GetConfigArgsSchema = z.object({});
 
 export const SetConfigValueArgsSchema = z.object({
   key: z.string(),
@@ -13,7 +11,6 @@ export const SetConfigValueArgsSchema = z.object({
     z.array(z.string()),
     z.null(),
   ]),
-  origin: z.enum(['ui', 'llm']).optional(),
 });
 
 export const ListProcessesArgsSchema = z.object({});
@@ -23,7 +20,6 @@ export const StartProcessArgsSchema = z.object({
   timeout_ms: z.number(),
   shell: z.string().optional(),
   verbose_timing: z.boolean().optional(),
-  origin: z.enum(['ui', 'llm']).optional(),
 });
 
 export const ReadProcessOutputArgsSchema = z.object({
@@ -46,13 +42,8 @@ export const KillProcessArgsSchema = z.object({
 
 export const ReadFileArgsSchema = z.object({
   path: z.string(),
-  isUrl: z.boolean().optional().default(false),
   offset: z.number().optional().default(0),
-  length: z.number().optional().default(1000),
-  sheet: z.string().optional(),
-  range: z.string().optional(),
-  options: z.record(z.any()).optional(),
-  origin: z.enum(['ui', 'llm']).optional(),
+  length: z.number().optional(),
 });
 
 export const ReadMultipleFilesArgsSchema = z.object({
@@ -63,7 +54,6 @@ export const WriteFileArgsSchema = z.object({
   path: z.string(),
   content: z.string(),
   mode: z.enum(['rewrite', 'append']).default('rewrite'),
-  origin: z.enum(['ui', 'llm']).optional(),
 });
 
 export const PdfInsertOperationSchema = z.object({
@@ -110,7 +100,6 @@ export const CreateDirectoryArgsSchema = z.object({
 export const ListDirectoryArgsSchema = z.object({
   path: z.string(),
   depth: z.number().optional().default(2),
-  origin: z.enum(['ui', 'llm']).optional(),
 });
 
 export const MoveFileArgsSchema = z.object({
@@ -122,6 +111,8 @@ export const GetFileInfoArgsSchema = z.object({
   path: z.string(),
 });
 
+// Internal compatibility schema for the retained edit implementation. The
+// public server validates against PublicEditBlockArgsSchema first.
 export const EditBlockArgsSchema = z
   .object({
     file_path: z.string(),
@@ -143,6 +134,13 @@ export const EditBlockArgsSchema = z
     },
     { message: 'Must provide either (old_string + new_string) or (range + content)' },
   );
+
+export const PublicEditBlockArgsSchema = z.object({
+  file_path: z.string(),
+  old_string: z.string().min(1),
+  new_string: z.string(),
+  expected_replacements: z.number().int().positive().optional().default(1),
+});
 
 export const InteractWithProcessArgsSchema = z.object({
   pid: z.number(),
@@ -204,7 +202,7 @@ export const toolArgSchemas: Record<string, z.ZodTypeAny> = {
   list_directory: ListDirectoryArgsSchema,
   move_file: MoveFileArgsSchema,
   get_file_info: GetFileInfoArgsSchema,
-  edit_block: EditBlockArgsSchema,
+  edit_block: PublicEditBlockArgsSchema,
   start_process: StartProcessArgsSchema,
   read_process_output: ReadProcessOutputArgsSchema,
   interact_with_process: InteractWithProcessArgsSchema,
