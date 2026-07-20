@@ -1,6 +1,6 @@
 /**
- * Centralized logging utility for Desktop Commander
- * Ensures all logging goes through proper channels based on initialization state
+ * Centralized logging utility for the Local MCP server.
+ * Ensures all logging goes through protocol-safe channels based on initialization state.
  */
 
 import type { FilteredStdioServerTransport } from '../custom-stdio.js';
@@ -10,48 +10,47 @@ declare global {
   var mcpTransport: FilteredStdioServerTransport | undefined;
 }
 
-export type LogLevel = 'emergency' | 'alert' | 'critical' | 'error' | 'warning' | 'notice' | 'info' | 'debug';
+export type LogLevel =
+  | 'emergency'
+  | 'alert'
+  | 'critical'
+  | 'error'
+  | 'warning'
+  | 'notice'
+  | 'info'
+  | 'debug';
 
-/**
- * Log a message using the appropriate method based on MCP initialization state
- */
+/** Log a message through the MCP transport when available. */
 export function log(level: LogLevel, message: string, data?: any): void {
   try {
-    // Check if MCP transport is available
     if (global.mcpTransport) {
-      // Always use MCP logging (will buffer if not initialized yet)
       global.mcpTransport.sendLog(level, message, data);
     } else {
-      // This should rarely happen, but fallback to create a JSON-RPC notification manually
       const notification = {
-        jsonrpc: "2.0" as const,
-        method: "notifications/message",
+        jsonrpc: '2.0' as const,
+        method: 'notifications/message',
         params: {
-          level: level,
-          logger: "desktop-commander",
-          data: data ? { message, ...data } : message
-        }
+          level,
+          logger: 'local-mcp-server',
+          data: data ? { message, ...data } : message,
+        },
       };
-      process.stdout.write(JSON.stringify(notification) + '\n');
+      process.stdout.write(`${JSON.stringify(notification)}\n`);
     }
-  } catch (error) {
-    // Ultimate fallback - but this should be JSON-RPC too
+  } catch {
     const notification = {
-      jsonrpc: "2.0" as const,
-      method: "notifications/message", 
+      jsonrpc: '2.0' as const,
+      method: 'notifications/message',
       params: {
-        level: "error",
-        logger: "desktop-commander",
-        data: `[LOG-ERROR] Failed to log message: ${message}`
-      }
+        level: 'error',
+        logger: 'local-mcp-server',
+        data: `[LOG-ERROR] Failed to log message: ${message}`,
+      },
     };
-    process.stdout.write(JSON.stringify(notification) + '\n');
+    process.stdout.write(`${JSON.stringify(notification)}\n`);
   }
 }
 
-/**
- * Convenience functions for different log levels
- */
 export const logger = {
   emergency: (message: string, data?: any) => log('emergency', message, data),
   alert: (message: string, data?: any) => log('alert', message, data),
@@ -63,20 +62,16 @@ export const logger = {
   debug: (message: string, data?: any) => log('debug', message, data),
 };
 
-/**
- * Log to stderr during early initialization (before MCP is ready)
- * Use this for critical startup messages that must be visible
- * NOTE: This should also be JSON-RPC format
- */
+/** Emit an early protocol-safe notification before the transport is initialized. */
 export function logToStderr(level: LogLevel, message: string): void {
   const notification = {
-    jsonrpc: "2.0" as const,
-    method: "notifications/message",
+    jsonrpc: '2.0' as const,
+    method: 'notifications/message',
     params: {
-      level: level,
-      logger: "desktop-commander", 
-      data: message
-    }
+      level,
+      logger: 'local-mcp-server',
+      data: message,
+    },
   };
-  process.stdout.write(JSON.stringify(notification) + '\n');
+  process.stdout.write(`${JSON.stringify(notification)}\n`);
 }
