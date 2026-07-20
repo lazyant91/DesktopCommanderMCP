@@ -30,7 +30,7 @@ async function callTool(name, args) {
     undefined,
     { timeout: 60_000 },
   );
-  assert.equal(result.isError, undefined, `${name} returned an error: ${JSON.stringify(result)}`);
+  assert.notEqual(result.isError, true, `${name} returned an error: ${JSON.stringify(result)}`);
   return result;
 }
 
