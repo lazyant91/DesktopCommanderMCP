@@ -1,67 +1,59 @@
-# Independent Minimal Desktop Commander MCP Design
+# Lean Standalone Local MCP Design
 
 **Date:** 2026-07-20  
 **Repository:** `lazyant91/DesktopCommanderMCP`  
-**Known-working baseline:** `main` at `78f8f4b1cd35ccca8af4a1208f196a0466dc39b0`  
-**Reference version:** `0.2.46`
+**Starting baseline:** `78f8f4b1cd35ccca8af4a1208f196a0466dc39b0`
 
-## Decision
+## 1. Decision
 
-Build and validate a customized MCP in this fork before considering `mcp-junction` integration.
+Transform this fork directly into a lightweight standalone local MCP server.
 
-The first implementation will not rewrite terminal, session, file, or path logic. It will add a small alternate stdio MCP executable that starts the existing Desktop Commander executable as an owned child and exposes only an approved tool allowlist.
+The final working tree will contain only the source, tests, configuration, documentation, and packaging required for local terminal, process-session, filesystem, and local access-policy tools. It will not retain a wrapper around a second full implementation, a duplicate compatibility executable, or product-specific connection infrastructure.
 
-Migration order:
+The implementation strategy is controlled subtraction rather than a from-scratch rewrite. Proven terminal, process, session, file, and path logic remains in place while unrelated product subsystems are removed in bounded pull requests.
 
-1. preserve the working baseline;
-2. add a filtered independent executable;
-3. validate it through the real OpenAI Tunnel Client and Web ChatGPT;
-4. use it before deleting product code;
-5. remove one bounded subsystem per later slice;
-6. replace complex internals only after equivalent behavior is proven.
+## 2. Product identity
 
-Docker, services, tray applications, automatic startup, and `mcp-junction` are out of scope.
+The repository describes one product:
 
-## Why wrapper-first
+> A standalone stdio MCP server that provides local terminal, process-session, filesystem, and configuration tools.
 
-The current product combines terminal and file tools with remote-device/Supabase support, telemetry, installation tracking, onboarding, feedback, prompts, feature flags, PDF/DOCX/Excel handling, MCP App UI resources, setup/removal flows, and release tooling.
+Its architecture is:
 
-The highest-risk behavior is Windows runtime behavior: interactive processes, stdout/stderr collection, prompt detection, timeouts, output pagination, PowerShell/CMD quoting, Ctrl+C, descendants, cleanup, and stdio protocol purity. Rewriting that before establishing an independent baseline would enlarge the failure surface and obscure responsibility.
+```text
+MCP Client
+    |
+    | stdio
+    v
+Local MCP Server
+    |
+    +-- local shell and process sessions
+    +-- local filesystem operations
+    +-- local configuration and access policy
+```
 
-The first slice therefore preserves behavior and filters exposure rather than deleting or reimplementing it.
+The source tree and public documentation must not introduce gateway, proxy, cloud connector, hosted service, remote control, client-specific integration, container deployment, tray host, service installation, or automatic-startup concerns.
 
-## Goals
+## 3. Why subtraction is required
 
-The first slice must:
+The current fork contains substantially more than the desired local MCP. Product and distribution concerns are intertwined with the useful terminal and filesystem implementation.
 
-- run directly on the current Windows host;
-- connect directly to the OpenAI Tunnel Client;
-- start `dist/index.js` as its owned stdio MCP child;
-- set `DESKTOP_COMMANDER_DISABLE_TELEMETRY=1` for the child;
-- pass `--no-onboarding` to the child;
-- expose only a fixed allowlist;
-- forward approved schemas and calls without semantic rewriting;
-- reject hidden tools without forwarding;
-- clean up the child on every wrapper exit path;
-- leave the original executable unchanged and runnable.
+The highest-risk code is the runtime behavior that already works in the known baseline:
 
-## Non-goals
+- long-running and interactive processes;
+- stdout and stderr collection;
+- prompt and waiting-state detection;
+- output pagination and bounded buffering;
+- PowerShell and CMD quoting and encoding;
+- process completion, interruption, forced termination, and cleanup;
+- path validation and file-edit behavior;
+- stdio protocol purity.
 
-The first slice will not:
+Rewriting these areas during initial cleanup would combine feature deletion with runtime redesign and make failures difficult to isolate. They are therefore preserved unless a later explicitly approved design replaces them.
 
-- import or depend on `mcp-junction`;
-- delete existing source or dependencies;
-- rewrite process/session/file behavior;
-- change shell, blocked-command, allowed-directory, or read/write-limit semantics;
-- expose the current settings or file-preview MCP App UI;
-- proxy resources or prompts;
-- enumerate all host processes or kill arbitrary PIDs;
-- install software globally or change persistent host settings;
-- claim real compatibility from unit tests alone.
+## 4. Retained product surface
 
-## Approved tool surface
-
-### Terminal
+### 4.1 Terminal and session tools
 
 - `start_process`
 - `read_process_output`
@@ -69,7 +61,7 @@ The first slice will not:
 - `force_terminate`
 - `list_sessions`
 
-### Workspace
+### 4.2 Workspace tools
 
 - `read_file`
 - `read_multiple_files`
@@ -80,221 +72,257 @@ The first slice will not:
 - `move_file`
 - `get_file_info`
 
-### Configuration
+### 4.3 Configuration tools
 
 - `get_config`
 - `set_config_value`
 
-Configuration tools preserve current settings without requiring the settings UI.
+The retained configuration continues to cover shell selection, blocked commands, allowed directories, file-read limits, and file-write limits until separately redesigned.
 
-Every tool not in this allowlist is hidden and rejected. This includes `list_processes`, `kill_process`, PDF tools, background search tools, usage/history tools, feedback, prompts, and UI tracking. Future upstream additions must remain hidden by default.
+### 4.4 Excluded product surface
 
-## Architecture
+The lightweight server does not expose:
 
-```text
-OpenAI Tunnel Client
-        |
-        | stdio MCP
-        v
-minimal wrapper executable
-        |
-        | MCP client over owned stdio child
-        v
-existing Desktop Commander executable
-        |
-        v
-PowerShell / CMD / local filesystem
-```
+- global process enumeration;
+- arbitrary PID termination;
+- remote-device management;
+- external backend integration;
+- telemetry or product analytics;
+- onboarding, feedback, or prompt catalogs;
+- specialized document or media production unless explicitly retained later;
+- background search sessions unless explicitly retained later.
 
-The wrapper is an MCP server toward the Tunnel Client and an MCP client toward the existing child.
+## 5. Final repository requirements
 
-### Startup
+The final working tree must:
 
-1. Reserve wrapper stdout exclusively for MCP JSON-RPC.
-2. Resolve the absolute built path to the baseline entrypoint.
-3. Start it with the telemetry kill switch and `--no-onboarding`.
-4. Initialize an MCP client over the owned stdio child.
-5. Consume every page of upstream `tools/list`.
-6. Fail closed if any required tool is missing.
-7. Snapshot only allowlisted tool definitions.
-8. Connect the downstream stdio server only after upstream verification succeeds.
+- have one primary MCP server entrypoint;
+- contain no second full original implementation;
+- contain no wrapper or proxy to another bundled server;
+- use only dependencies required by retained features;
+- contain no dead scripts, imports, tests, assets, or documentation for removed features;
+- keep required MIT license and attribution notices;
+- provide general MCP build, run, configuration, tool, security, and development documentation;
+- avoid documentation for any particular MCP client or connection product.
 
-### Tool listing
+Git history preserves the original fork baseline and supplies rollback. The baseline does not need to remain duplicated in the final source tree.
 
-Downstream `tools/list` returns only allowlisted tools. It retains upstream names, descriptions, input schemas, annotations, and non-UI metadata required for normal invocation. UI resource metadata is omitted. Pagination remains protocol-correct.
+## 6. Removal sequence
 
-### Tool calls
+Each slice is implemented in its own branch and pull request. A slice must be coherent enough that the repository remains buildable and reviewable after merge.
 
-For `tools/call`, the wrapper:
+### Slice 1 — Product analytics and onboarding removal
 
-1. checks the fixed allowlist;
-2. rejects hidden or unknown names locally;
-3. forwards approved calls exactly once with unchanged arguments;
-4. preserves upstream content and `isError` semantics;
-5. sends diagnostics only to stderr.
+Remove:
 
-Logs must not contain full file contents, secrets, command output, or arbitrary tool arguments by default.
+- telemetry transport and capture calls;
+- installation tracking;
+- usage analytics and history tools not required by the retained product;
+- feedback flows;
+- onboarding prompts and state;
+- feature flags and A/B tests used only by removed product behavior.
 
-### Capabilities
+Preserve terminal, file, configuration, and stdio behavior.
 
-The first slice advertises tools only. It does not advertise or proxy resources, resource templates, or prompts. Loss of the current settings/file-preview UI is intentional for the minimal executable; the original executable remains available.
+### Slice 2 — Remote and external backend removal
 
-### Shutdown
+Remove:
 
-On stdin closure, SIGINT, SIGTERM, startup failure, or normal close, the wrapper must:
+- remote-device source and scripts;
+- external backend clients and configuration;
+- remote-specific metadata and call attribution;
+- device management scripts and dependencies.
 
-1. reject new calls;
-2. close the upstream MCP client and transport;
-3. wait for the exact owned child to exit;
-4. escalate only against that child after a bounded grace period;
-5. remove listeners and timers;
-6. leave no unexpected child or active handle.
+The server remains a local stdio MCP only.
 
-It must never terminate unrelated PowerShell, CMD, Node, or user processes.
+### Slice 3 — Specialized document and media removal
 
-## Proposed source layout
+Remove, subject to the approved retained-feature list:
 
-```text
-src/minimal/
-├── index.ts
-├── minimal-server.ts
-├── upstream-client.ts
-├── tool-policy.ts
-├── tool-catalog.ts
-├── lifecycle.ts
-└── errors.ts
+- PDF creation and editing;
+- DOCX-specific parsing and editing;
+- spreadsheet-specific parsing and editing;
+- image-preview and binary-display specialization;
+- URL-reading specialization;
+- browser or renderer acquisition used only by removed features.
 
-test/minimal/
-├── tool-policy.test.ts
-├── tool-catalog.test.ts
-├── minimal-server.test.ts
-├── upstream-client.test.ts
-└── fixtures/fixture-mcp-server.ts
-```
+Retain reliable text-file workflows.
 
-Responsibilities may follow existing test conventions, but must remain separated.
+### Slice 4 — Nonessential search and global process tools
 
-## Package behavior
+Remove:
 
-Preserve the original binary and add an alternate one:
+- global process listing;
+- arbitrary PID termination;
+- background search-session management;
+- search-specific binaries and dependencies when no retained code requires them.
 
-```json
-{
-  "bin": {
-    "desktop-commander": "dist/index.js",
-    "desktop-commander-minimal": "dist/minimal/index.js"
-  }
-}
-```
+Retain only sessions owned by the local MCP.
 
-Add `start:minimal` and `inspector:minimal` scripts after confirming the actual TypeScript output path. Do not remove dependencies or alter the existing build beyond emitting and testing the alternate executable.
+### Slice 5 — UI and resource surface
 
-## Configuration
+The configuration UI is an unresolved product decision. Before this slice begins, choose one:
 
-The child continues using current Desktop Commander configuration storage and semantics. The wrapper has no mutable product configuration except the source-controlled allowlist.
+- retain a small local configuration UI; or
+- remove all MCP App UI/resources and manage settings through tools and the configuration file.
 
-Operational rules:
+File-preview UI and unrelated product UI are not retained by default.
 
-- telemetry is always disabled for wrapper-owned children;
-- onboarding is always disabled;
-- current shell, blocked commands, allowed directories, and limits remain authoritative;
-- empty `allowedDirectories` keeps its current upstream meaning until a separate security migration;
-- neither allowed directories nor blocked commands are represented as a complete shell sandbox.
+### Slice 6 — Packaging and repository cleanup
 
-## Error responsibility
+Remove or replace:
 
-- **Wrapper startup failure:** missing child path, MCP initialization failure, incomplete catalog, missing required tool, or child exit during startup.
-- **Policy rejection:** hidden tool rejected locally without contacting the child.
-- **Forwarded failure:** approved upstream call returns an MCP error or `isError`; preserve it as an upstream result.
-- **Environment/baseline failure:** both original and minimal fail under the same input and host state until evidence isolates the wrapper.
+- client-specific setup and uninstall flows;
+- release and publish automation not required for the standalone project;
+- product testimonials and promotional assets;
+- unrelated plugins, copied skills, and integration guides;
+- obsolete package scripts, build steps, assets, tests, and dependencies.
 
-Errors must identify the stage without exposing secrets or full paths unnecessarily.
+Rewrite package metadata and README around the standalone local MCP only.
 
-## Testing
+### Slice 7 — Final consistency pass
 
-### Unit tests
+Perform repository-wide consistency cleanup:
 
-Prove:
+- eliminate dead imports and exports;
+- remove obsolete configuration keys and migrations;
+- remove stale names and descriptions;
+- confirm the tool catalog matches handlers and schemas;
+- confirm package contents include only runtime requirements;
+- confirm documentation matches the actual final product.
 
-- exact allowlist behavior;
-- unknown tools are hidden and never forwarded;
-- required missing tools fail startup;
-- paginated catalogs are fully consumed;
-- retained schemas and annotations are preserved;
-- approved calls are forwarded once with unchanged arguments;
-- resources and prompts are not advertised;
-- error messages are sanitized;
-- shutdown is idempotent.
+This slice must not redesign runtime behavior.
 
-### Fixture integration tests
+## 7. Pull request workflow
 
-A deterministic fixture MCP child must prove initialization, paginated listing, call pass-through, structured errors, startup failure, child exit during a call, cleanup, and protocol-pure stdout.
+### 7.1 Implementation
 
-These tests prove wrapper behavior only.
+For each slice:
 
-### Baseline differential validation
+1. create a dedicated feature branch from current `main`;
+2. document the exact base SHA and slice boundaries;
+3. implement only that slice;
+4. update affected tests, package metadata, dependencies, scripts, and documentation;
+5. run available focused build or test commands in the implementation environment;
+6. open or update a Draft PR;
+7. record known runtime behavior that remains unverified.
 
-Build one exact fork head and compare:
+No intermediate PR claims complete Windows or end-to-end runtime validation.
 
-- original: `node dist/index.js --no-onboarding`
-- minimal: `node dist/minimal/index.js`
+### 7.2 Independent review
 
-Run both with telemetry disabled and the same configuration. Compare initialize, retained schemas, PowerShell success and non-zero exits, stdout/stderr, long-running output, interactive input, completion, forced termination, file read/write/edit, spaces and Korean characters in paths, and allowed-directory rejection.
+A separate review agent reviews the complete PR diff and checks:
 
-Expected intentional differences are fewer tools and no MCP App resources/prompts. Retained tool behavior must otherwise match.
+- the change stays within the approved slice;
+- retained terminal and file paths were not altered incidentally;
+- all removed code references are eliminated;
+- package scripts and dependencies remain internally consistent;
+- tests were not weakened beyond what removal requires;
+- documentation describes only the standalone local MCP;
+- security and privacy behavior did not regress;
+- no workflow automation was introduced.
 
-### Real Tunnel validation
+Blocking findings must be resolved and reviewed again. The review concludes with exactly one of:
 
-A separate Windows validation agent must test the exact implementation head through:
+- `Review passed: YES`
+- `Review passed: NO`
 
-```text
-Web ChatGPT -> OpenAI Tunnel Client -> minimal wrapper -> baseline child
-```
+### 7.3 Merge
 
-It must verify Tunnel readiness, exact visible tools, a read-only call, one-shot PowerShell, a temporary write/edit/read cycle, a long-running or interactive session, forced termination, Tunnel shutdown, clean worktree, and absence of owned orphan processes, temporary files, ports, sessions, listeners, or active handles.
+When the review records `Review passed: YES`:
 
-Implementation-agent tests do not replace this validation.
+1. ensure no blocking review thread remains unresolved;
+2. mark a Draft PR ready for review;
+3. squash merge into `main`;
+4. delete the feature branch when tooling permits.
 
-## Security and privacy
+Intermediate merge approval is based on bounded implementation evidence and independent code review, not local end-to-end validation.
 
-- Always use the telemetry environment kill switch.
-- Never execute installation tracking in the wrapper flow.
-- Reject non-allowlisted tools before forwarding.
-- Add no external network service.
-- Make no global or persistent host changes.
-- Preserve the MIT license and upstream notices.
-- Treat command filtering as advisory rather than a complete security boundary.
+## 8. No GitHub Actions
 
-## Later slices
+Do not add, restore, enable, or modify GitHub Actions workflows.
 
-Each later item requires its own design, TDD implementation, and exact-head validation.
+During this project phase:
 
-1. **Filtered executable:** add the wrapper; delete nothing.
-2. **Outbound product behavior:** remove telemetry, tracking, feedback, onboarding, and feature flags from the customized path.
-3. **Remote path:** remove remote-device and Supabase from the customized build.
-4. **Document/UI specializations:** remove PDF, DOCX, Excel, image/URL, and MCP App UI groups while retaining text/workspace behavior.
-5. **Packaging cleanup:** remove Claude-specific setup/remove, release tooling, testimonials, and unrelated plugin/skill content.
-6. **Internal replacement decision:** only after sustained real use, decide whether terminal/session/file internals should be replaced at all.
+- `.github/workflows/` must not be introduced or expanded;
+- hosted CI is not a merge requirement;
+- PR descriptions must clearly state that no hosted CI evidence exists;
+- implementation tests and independent review are the available intermediate evidence.
 
-## First-slice success criteria
+## 9. Consolidated final validation
 
-Success requires all of the following:
+Perform local validation once, after all planned slices are merged and the repository has reached the intended lightweight structure.
 
-- original executable remains runnable;
-- minimal executable builds and starts independently;
-- visible tools equal the approved allowlist;
-- hidden tools cannot be called;
-- telemetry and onboarding are disabled for the child;
-- unit and fixture integration tests pass;
-- retained behavior passes differential checks;
-- real Tunnel Client and Web ChatGPT validation passes on the exact head;
-- shutdown leaves no owned orphan or temporary resource;
-- independent report states `Merge allowed: YES`.
+The validation target is one exact `main` SHA. The validator must not modify the repository.
 
-## Rollback
+The final validation covers the complete retained product:
 
-The first slice is additive. Stop invoking the minimal executable and return to the unchanged original `dist/index.js`. No user configuration or project-file migration is required.
+- clean install and build from the documented requirements;
+- MCP initialize and complete `tools/list`;
+- exact retained tool surface;
+- one-shot PowerShell success and non-zero exit;
+- stdout and stderr capture;
+- long-running process output;
+- interactive input;
+- normal completion and forced termination;
+- owned child-process cleanup;
+- paths containing spaces and Korean characters;
+- bounded file reads and writes;
+- exact block editing;
+- directory creation, listing, movement, and metadata;
+- allowed-directory acceptance and rejection;
+- configuration read and update behavior;
+- server shutdown with no unexpected owned process, temporary resource, listener, or active handle;
+- clean worktree at the end.
 
-## Deferred decisions
+The report must distinguish confirmed results from untested assumptions and conclude with:
 
-Real-use evidence will decide whether to restore a settings UI, retain background search, keep `read_multiple_files`, change empty allowed-directory semantics, rename the package/MCP identity, remove the original executable, or integrate with `mcp-junction`.
+- `Release validation: PASS`; or
+- `Release validation: FAIL`.
+
+A failure produces a focused bug-fix PR, separate review, squash merge, and a new consolidated validation on the new exact head.
+
+## 10. Risk controls without per-slice local validation
+
+Deferring local validation increases the chance that integration defects accumulate. The project controls that risk by:
+
+- keeping every PR small and subsystem-bounded;
+- avoiding terminal and process-runtime rewrites;
+- requiring complete reference cleanup within each slice;
+- requiring independent review before every merge;
+- recording unverified runtime risks in each PR;
+- using squash merges for straightforward rollback and history;
+- postponing the final readiness claim until consolidated validation passes.
+
+A code review approval proves diff quality and consistency, not actual host-runtime behavior.
+
+## 11. Security principles
+
+- The server runs with the permissions of its local user.
+- Allowed-directory checks constrain structured filesystem tools but are not a complete shell sandbox.
+- Blocked-command filtering is advisory and must not be described as a complete security boundary.
+- The server must not transmit telemetry or product-usage data.
+- Logs must avoid secrets, full file contents, and unnecessary command output.
+- The server must not terminate processes it does not own through its retained session tools.
+- No global or persistent host change is part of normal installation or validation.
+
+## 12. Deferred decisions
+
+The following require explicit approval before implementation:
+
+- whether the local configuration UI remains;
+- whether `read_multiple_files` remains after real use;
+- whether background content search is eventually restored in a simpler form;
+- whether configuration defaults or empty allowed-directory semantics change;
+- whether the package and MCP server identity are renamed;
+- whether terminal or filesystem internals are ever replaced rather than retained.
+
+## 13. Success condition
+
+The project is complete only when:
+
+- all planned slices have passed independent review and been squash merged;
+- the final working tree contains only the lightweight standalone local MCP;
+- no GitHub Actions workflow has been added;
+- public documentation contains no unrelated integration context;
+- the consolidated exact-head local validation records `Release validation: PASS`.
