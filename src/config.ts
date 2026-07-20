@@ -1,9 +1,9 @@
 import path from 'path';
 import os from 'os';
 
-// Use the user's home directory for the local MCP configuration file.
+// Use a product-specific directory so this server does not share state with the upstream project.
 export const USER_HOME = os.homedir();
-const CONFIG_DIR = path.join(USER_HOME, '.claude-server-commander');
+const CONFIG_DIR = path.join(USER_HOME, '.local-mcp-server');
 
 export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
