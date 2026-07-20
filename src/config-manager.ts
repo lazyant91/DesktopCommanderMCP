@@ -109,11 +109,15 @@ function cloneConfig(config: ServerConfig): ServerConfig {
   };
 }
 
-class ConfigManager {
-  private readonly configPath = CONFIG_FILE;
+export class ConfigManager {
+  private readonly configPath: string;
   private config: ServerConfig = getDefaultServerConfig();
   private initialized = false;
   private writeChain: Promise<void> = Promise.resolve();
+
+  constructor(configPath = CONFIG_FILE) {
+    this.configPath = configPath;
+  }
 
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -200,8 +204,8 @@ class ConfigManager {
   }
 
   async resetConfig(): Promise<ServerConfig> {
+    await this.init();
     this.config = getDefaultServerConfig();
-    this.initialized = true;
     await this.saveConfig();
     return cloneConfig(this.config);
   }
