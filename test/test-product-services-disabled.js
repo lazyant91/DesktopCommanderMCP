@@ -5,6 +5,7 @@ for (const removedPath of [
   '../src/tools/feedback.ts',
   '../src/tools/prompts.ts',
   '../src/tools/usage.ts',
+  '../src/utils/dockerPrompt.ts',
   '../src/utils/feature-flags.ts',
   '../src/utils/mcp-ui-ab-test.ts',
   '../src/utils/usageTracker.ts',
