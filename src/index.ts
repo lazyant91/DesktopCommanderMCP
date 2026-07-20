@@ -10,7 +10,6 @@ import { configManager } from './config-manager.js';
 import { runSetup } from './npm-scripts/setup.js';
 import { runUninstall } from './npm-scripts/uninstall.js';
 import { logger } from './utils/logger.js';
-import { runRemote } from './npm-scripts/remote.js';
 import { ensureChromeAvailable } from './tools/pdf/markdown.js';
 
 void commandManager;
@@ -30,11 +29,6 @@ async function runServer() {
 
     if (process.argv[2] === 'remove') {
       await runUninstall();
-      return;
-    }
-
-    if (process.argv[2] === 'remote') {
-      await runRemote();
       return;
     }
 
