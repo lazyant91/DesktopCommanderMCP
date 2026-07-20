@@ -13,7 +13,6 @@ import { VERSION } from './version.js';
 import { getConfig, setConfigValue } from './tools/config.js';
 import {
   CreateDirectoryArgsSchema,
-  EditBlockArgsSchema,
   ForceTerminateArgsSchema,
   GetConfigArgsSchema,
   GetFileInfoArgsSchema,
@@ -21,6 +20,7 @@ import {
   ListDirectoryArgsSchema,
   ListSessionsArgsSchema,
   MoveFileArgsSchema,
+  PublicEditBlockArgsSchema,
   ReadFileArgsSchema,
   ReadMultipleFilesArgsSchema,
   ReadProcessOutputArgsSchema,
@@ -67,19 +67,19 @@ export const toolDefinitions = [
   },
   {
     name: 'read_file',
-    description: 'Read a text file with optional line offset and length.',
+    description: 'Read a local text file with optional line offset and length.',
     inputSchema: zodToJsonSchema(ReadFileArgsSchema),
     annotations: { title: 'Read File', readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'read_multiple_files',
-    description: 'Read multiple text files and return per-file results.',
+    description: 'Read multiple local text files and return per-file results.',
     inputSchema: zodToJsonSchema(ReadMultipleFilesArgsSchema),
     annotations: { title: 'Read Multiple Files', readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'write_file',
-    description: 'Write or append text content to a file.',
+    description: 'Write or append text content to a local file.',
     inputSchema: zodToJsonSchema(WriteFileArgsSchema),
     annotations: {
       title: 'Write File',
@@ -125,7 +125,7 @@ export const toolDefinitions = [
   {
     name: 'edit_block',
     description: 'Replace an exact text block in a local text file.',
-    inputSchema: zodToJsonSchema(EditBlockArgsSchema),
+    inputSchema: zodToJsonSchema(PublicEditBlockArgsSchema),
     annotations: {
       title: 'Edit Text Block',
       readOnlyHint: false,
@@ -185,7 +185,6 @@ export let currentClient = {
   version: 'uninitialized',
 };
 
-// Legacy exports retained temporarily for modules compiled before product-service cleanup.
 export const currentCallIsRemote = false;
 export const currentRemoteClient: null = null;
 
@@ -248,7 +247,7 @@ const toolHandlers: Record<string, ToolHandler> = {
   list_directory: handleListDirectory,
   move_file: handleMoveFile,
   get_file_info: handleGetFileInfo,
-  edit_block: handleEditBlock,
+  edit_block: async (args) => handleEditBlock(PublicEditBlockArgsSchema.parse(args)),
   start_process: handleStartProcess,
   read_process_output: handleReadProcessOutput,
   interact_with_process: handleInteractWithProcess,
