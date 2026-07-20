@@ -7,6 +7,7 @@ const packageJson = JSON.parse(
 
 assert.deepEqual(Object.keys(packageJson.dependencies).sort(), [
   '@modelcontextprotocol/sdk',
+  'exceljs',
   'isbinaryfile',
   'zod',
   'zod-to-json-schema',
@@ -31,7 +32,6 @@ for (const removedDependency of [
   '@tiptap/core',
   '@vscode/ripgrep',
   'caffeinate',
-  'exceljs',
   'fastest-levenshtein',
   'md-to-pdf',
   'pdf-lib',
