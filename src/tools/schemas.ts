@@ -105,30 +105,6 @@ export const GetFileInfoArgsSchema = z.object({
   path: z.string(),
 });
 
-// Internal compatibility schema for the retained edit implementation. The
-// public server validates against PublicEditBlockArgsSchema first.
-export const EditBlockArgsSchema = z
-  .object({
-    file_path: z.string(),
-    old_string: z.string().optional(),
-    new_string: z.string().optional(),
-    expected_replacements: z.number().optional().default(1),
-    range: z.string().optional(),
-    content: z.any().optional(),
-    options: z.record(z.any()).optional(),
-    origin: z.enum(['ui', 'llm']).optional(),
-  })
-  .refine(
-    (data) => {
-      const hasValue = (value: unknown) => value !== undefined && value !== '';
-      return (
-        (hasValue(data.old_string) && data.new_string !== undefined) ||
-        (hasValue(data.range) && hasValue(data.content))
-      );
-    },
-    { message: 'Must provide either (old_string + new_string) or (range + content)' },
-  );
-
 export const PublicEditBlockArgsSchema = z.object({
   file_path: z.string(),
   old_string: z.string().min(1),
