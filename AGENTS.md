@@ -1,35 +1,72 @@
 # AGENTS.md
 
-This file applies to the entire `DesktopCommanderMCP` fork.
+This file applies to the entire repository.
 
 ## Repository role
 
-- This repository is an independent customization fork of `wonderwhy-er/DesktopCommanderMCP`.
-- `main` is the known-working upstream reference baseline until a replacement slice is independently verified.
-- Do not use `mcp-junction` as an implementation dependency or validation oracle. Integration with `mcp-junction` is out of scope until this MCP works independently through the OpenAI Tunnel Client.
-- Preserve the MIT license and upstream copyright notices for copied or retained code.
+- This repository must become a standalone, lightweight local MCP server.
+- Its product scope is limited to local terminal, process-session, filesystem, and local configuration capabilities.
+- Do not add gateway, proxy, tunnel, cloud-connector, hosted-service, client-specific integration, container, tray, service, or automatic-startup concerns unless the user approves a separate future scope.
+- Final source, documentation, scripts, package metadata, and examples must describe only the standalone local MCP product.
+- Preserve the MIT license and all required upstream copyright notices for retained or adapted code.
+
+## Target architecture
+
+```text
+MCP Client
+    |
+    | stdio
+    v
+Local MCP Server
+    |
+    +-- local shell and process sessions
+    +-- local filesystem operations
+    +-- local configuration and access policy
+```
+
+The final working tree must not retain a second full upstream implementation, wrapper/proxy architecture, or an unused compatibility copy of the original product.
 
 ## Branch and pull request rules
 
-- Do not commit feature or bug-fix work directly to `main`.
-- Keep implementation pull requests in Draft while any required local Windows validation gate is unresolved.
-- Before merging a Draft pull request, mark it ready for review.
+- Do not commit feature, subtraction, refactor, or bug-fix work directly to `main`.
+- Keep each pull request limited to one bounded subsystem or cleanup slice.
+- Keep a pull request in Draft while implementation or review issues remain unresolved.
+- A separate review agent must review the complete PR diff before merge.
+- Review feedback must be checked against the actual codebase; do not apply suggestions blindly.
+- Merge only after the review has no unresolved blocking findings and records `Review passed: YES`.
+- Before merging a Draft PR, mark it ready for review.
 - Merge with squash merge.
 - Delete the merged feature branch when tooling permits.
-- Never merge an implementation change without identifying the exact upstream reference SHA and the exact fork head SHA that were validated.
+
+## No GitHub Actions
+
+- Do not create, restore, enable, or modify files under `.github/workflows/`.
+- Do not depend on GitHub Actions or hosted CI as a merge gate while this rule is active.
+- Existing workflow files, if any, must not be activated or expanded without explicit user approval.
+
+## Validation policy
+
+- Do not perform independent Windows/local end-to-end validation for each intermediate PR.
+- Intermediate PRs are merged after bounded implementation work and independent code review.
+- Implementation-agent builds, type checks, or focused tests are useful development evidence, but they are not final local validation.
+- Perform one consolidated local validation only after all planned slimming slices are merged.
+- Final validation must target one exact `main` SHA and the complete standalone product.
+- If final validation fails, create a focused bug-fix PR, obtain a separate review, squash merge it, and repeat consolidated validation on the new exact head.
+- Do not declare the product ready for use until the final report records `Release validation: PASS`.
 
 ## Customization strategy
 
-- Prefer preservation and subtraction over reimplementation.
-- Do not rewrite the terminal/session/process implementation in the first customization slices.
-- Remove or disable one bounded feature group at a time.
-- Every removal must prove that the retained tool surface still behaves like the known-working baseline for the affected scenarios.
-- Keep the original baseline executable available until the customized executable passes differential validation.
-- Do not couple the customization to `mcp-junction`, Docker, a Windows service, or a tray host during the independent MCP phase.
+- Prefer direct subtraction and bounded adaptation over a from-scratch rewrite.
+- Preserve proven terminal, session, process, file, and path behavior until a separately approved replacement is justified.
+- Remove one coherent feature group at a time.
+- Do not perform unrelated refactors while removing a subsystem.
+- Avoid dependency upgrades during subtraction work unless they are strictly required by the approved slice.
+- Every PR must leave the repository internally coherent: no dead imports, unresolved references, obsolete scripts, orphaned tests, misleading documentation, or dependencies retained only for removed code.
+- Git history is the rollback mechanism; the final working tree should contain only the lightweight product.
 
-## Initial retained behavior
+## Retained product capabilities
 
-The first usable customized server must retain these terminal tools:
+Unless a later approved design changes the scope, retain these terminal tools:
 
 - `start_process`
 - `read_process_output`
@@ -37,7 +74,7 @@ The first usable customized server must retain these terminal tools:
 - `force_terminate`
 - `list_sessions`
 
-The first usable customized server should retain these text/workspace tools unless a design explicitly narrows the slice:
+Retain these workspace and configuration tools:
 
 - `read_file`
 - `read_multiple_files`
@@ -50,83 +87,58 @@ The first usable customized server should retain these text/workspace tools unle
 - `get_config`
 - `set_config_value`
 
-Do not expose `list_processes` or `kill_process` in the minimal product surface.
+Do not expose global process enumeration or arbitrary PID termination in the lightweight product.
 
-## Features targeted for eventual removal
+## Removal targets
 
-Remove only through approved, separately verified slices:
+Remove through bounded pull requests:
 
-- remote-device and Supabase integration;
+- remote-device and external backend integrations;
 - telemetry, installation tracking, usage analytics, feedback, onboarding, feature flags, and A/B tests;
-- PDF, DOCX, Excel, image-preview, and URL-reading specializations;
-- MCP App UI and file/config preview resources, unless later retained by an explicit usability decision;
-- Claude-specific setup/remove flows, release tooling, testimonials, and unrelated skills/plugins;
+- PDF, DOCX, Excel, image-preview, and URL-reading specializations unless explicitly retained;
 - global process enumeration and arbitrary PID termination;
-- background search sessions, unless real use demonstrates a requirement.
+- background search sessions unless explicitly retained;
+- client-specific setup/remove flows, release/publish tooling, testimonials, and unrelated plugin/skill content;
+- obsolete package dependencies, scripts, tests, assets, and documentation associated only with removed features.
 
-## Development quality gates
+The configuration UI decision is deferred until explicitly approved. Do not remove or redesign it as incidental cleanup.
 
-- Use test-driven development for behavioral changes: add or narrow a failing regression test, observe the expected failure, implement the minimum change, then run focused and broader tests.
-- Do not treat successful TypeScript compilation or component tests as proof of Tunnel Client or Web ChatGPT behavior.
-- Record confirmed facts, test evidence, hypotheses, and unverified assumptions separately.
-- Avoid dependency upgrades during subtraction work unless required for the approved slice.
-- Do not change terminal semantics, process detection, output buffering, shell quoting, or shutdown behavior as incidental cleanup.
+## Development quality
 
-## Differential validation
+- Use test-driven development for behavioral changes and bug fixes: create or narrow a failing regression test, observe the expected failure, implement the minimum change, then run focused tests.
+- Pure deletion slices may update or remove tests that exclusively cover removed behavior, but must preserve tests for retained behavior.
+- Do not claim that compilation or unit tests prove Windows interactive-process behavior.
+- Do not change terminal semantics, process detection, output buffering, shell quoting, encoding, interrupt handling, or shutdown behavior as incidental cleanup.
+- Record confirmed facts, implementation evidence, review findings, assumptions, and unverified runtime claims separately.
 
-For each implementation slice, compare the unmodified baseline and customized executable using the same inputs and environment.
+## Implementation-agent record
 
-At minimum, relevant slices must compare:
+For each implementation PR, record in the PR description or handover:
 
-- MCP initialize and paginated `tools/list`;
-- retained tool schemas and annotations;
-- one-shot PowerShell success and non-zero exit;
-- stdout and stderr capture;
-- long-running process output reads;
-- interactive PowerShell or REPL input;
-- process completion and forced termination;
-- paths containing spaces and Korean characters;
-- bounded file reads, writes, and exact block edits;
-- allowed-directory acceptance and rejection;
-- Tunnel Client connection and a real Web ChatGPT tool call.
+- starting base SHA;
+- approved slice and explicit non-goals;
+- files and dependencies removed or changed;
+- retained behavior potentially affected;
+- build, type-check, or focused tests executed and their results;
+- known unverified runtime risks;
+- final head SHA.
 
-A difference is acceptable only when it is an intentional, documented product change.
+## Review-agent role
 
-## Work-agent and validation-agent separation
+The review agent must not modify the PR branch unless the user explicitly approves a role change. It must review:
 
-Use separate roles for implementation and independent local validation whenever Windows, Tunnel Client, Web ChatGPT, interactive processes, process trees, shell quoting, or host filesystem behavior is part of the acceptance boundary.
+- whether the diff stays inside the approved slice;
+- whether retained tools or runtime paths were changed accidentally;
+- whether imports, exports, build scripts, tests, dependencies, assets, and documentation remain consistent;
+- whether removed code is still reachable or referenced;
+- whether security or privacy behavior regressed;
+- whether tests were weakened beyond what the removal requires;
+- whether the PR introduces product-specific integration material outside the standalone local MCP scope.
 
-### Work agent
+The review result must list blocking findings, non-blocking observations, and conclude with exactly one of:
 
-A work agent may:
-
-- analyze and instrument the fork;
-- edit source, tests, configuration, build scripts, and documentation;
-- run focused implementation tests;
-- commit and push changes;
-- update the pull request.
-
-The work agent must record:
-
-- starting branch and exact SHA;
-- starting `git status --short`;
-- reproduction or baseline evidence;
-- files changed and reasons;
-- tests and diagnostics run;
-- resulting commit SHA and push result;
-- ending `git status --short`.
-
-### Local validation agent
-
-A local validation agent normally may only:
-
-- verify branch and exact SHA;
-- collect environment information;
-- execute deterministic instructions;
-- record output, exit codes, processes, files, ports, handles, and cleanup state;
-- report pass or fail against explicit criteria.
-
-It must not modify source, tests, configuration, lockfiles, or scripts without explicit approval to switch roles.
+- `Review passed: YES`
+- `Review passed: NO`
 
 ## Local environment restrictions
 
@@ -140,12 +152,4 @@ Do not make persistent host changes without explicit user approval, including:
 - deletion of pre-existing user resources;
 - machine-wide execution-policy or security changes.
 
-Prefer temporary, transaction-owned resources that are removed after validation.
-
-## Merge gate
-
-For changes affecting Windows execution, interactive sessions, process lifetime, Tunnel Client connectivity, or the real Web ChatGPT workflow, merge is allowed only after a separate exact-head Windows validation report states:
-
-`Merge allowed: YES`
-
-The report must also confirm a clean worktree and cleanup of child processes, temporary files, ports, terminal sessions, signal listeners, and other owned resources.
+Prefer temporary, transaction-owned resources that can be removed after the final validation.
