@@ -1,340 +1,214 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { existsSync } from 'fs';
-import { mkdir } from 'fs/promises';
-import os from 'os';
-import { VERSION } from './version.js';
+import { existsSync } from 'node:fs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { CONFIG_FILE } from './config.js';
 
 export interface ServerConfig {
-  blockedCommands?: string[];
-  defaultShell?: string;
-  allowedDirectories?: string[];
-  telemetryEnabled?: boolean; // New field for telemetry control
-  fileWriteLineLimit?: number; // Line limit for file write operations
-  fileReadLineLimit?: number; // Default line limit for file read operations (changed from character-based)
-  clientId?: string; // Unique client identifier for analytics
-  currentClient?: ClientInfo; // Current connected client information
-  [key: string]: any; // Allow for arbitrary configuration keys (including abTest_* keys)
+  blockedCommands: string[];
+  allowedDirectories: string[];
+  defaultShell: string;
+  fileReadLineLimit: number;
+  fileWriteLineLimit: number;
 }
 
-export interface ClientInfo {
-  name: string;
-  version: string;
+const DEFAULT_BLOCKED_COMMANDS = [
+  'mkfs',
+  'format',
+  'mount',
+  'umount',
+  'fdisk',
+  'dd',
+  'parted',
+  'diskpart',
+  'sudo',
+  'su',
+  'passwd',
+  'adduser',
+  'useradd',
+  'usermod',
+  'groupadd',
+  'chsh',
+  'visudo',
+  'shutdown',
+  'reboot',
+  'halt',
+  'poweroff',
+  'init',
+  'iptables',
+  'firewall',
+  'netsh',
+  'sfc',
+  'bcdedit',
+  'reg',
+  'net',
+  'sc',
+  'runas',
+  'cipher',
+  'takeown',
+];
+
+function defaultShell(): string {
+  if (os.platform() === 'win32') return 'powershell.exe';
+  return process.env.SHELL || (os.platform() === 'darwin' ? '/bin/zsh' : '/bin/sh');
 }
 
-export function normalizeTelemetryEnabledValue(value: unknown): unknown {
-  if (typeof value !== 'string') {
-    return value;
+export function getDefaultServerConfig(): ServerConfig {
+  return {
+    blockedCommands: [...DEFAULT_BLOCKED_COMMANDS],
+    allowedDirectories: [],
+    defaultShell: defaultShell(),
+    fileReadLineLimit: 1000,
+    fileWriteLineLimit: 50,
+  };
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    return undefined;
   }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'true') {
-    return true;
-  }
-
-  if (normalized === 'false') {
-    return false;
-  }
-
-  return value;
+  return [...value];
 }
 
-export function isTelemetryDisabledValue(value: unknown): boolean {
-  return normalizeTelemetryEnabledValue(value) === false;
+function positiveNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    return undefined;
+  }
+  return Math.floor(value);
 }
 
-/**
- * Singleton config manager for the server
- */
-class ConfigManager {
-  private configPath: string;
-  private config: ServerConfig = {};
+export function sanitizeStoredConfig(value: unknown): Partial<ServerConfig> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+  const input = value as Record<string, unknown>;
+  const cleaned: Partial<ServerConfig> = {};
+  const blockedCommands = stringArray(input.blockedCommands);
+  const allowedDirectories = stringArray(input.allowedDirectories);
+  const fileReadLineLimit = positiveNumber(input.fileReadLineLimit);
+  const fileWriteLineLimit = positiveNumber(input.fileWriteLineLimit);
+
+  if (blockedCommands) cleaned.blockedCommands = blockedCommands;
+  if (allowedDirectories) cleaned.allowedDirectories = allowedDirectories;
+  if (typeof input.defaultShell === 'string' && input.defaultShell.trim()) {
+    cleaned.defaultShell = input.defaultShell.trim();
+  }
+  if (fileReadLineLimit !== undefined) cleaned.fileReadLineLimit = fileReadLineLimit;
+  if (fileWriteLineLimit !== undefined) cleaned.fileWriteLineLimit = fileWriteLineLimit;
+
+  return cleaned;
+}
+
+function cloneConfig(config: ServerConfig): ServerConfig {
+  return {
+    blockedCommands: [...config.blockedCommands],
+    allowedDirectories: [...config.allowedDirectories],
+    defaultShell: config.defaultShell,
+    fileReadLineLimit: config.fileReadLineLimit,
+    fileWriteLineLimit: config.fileWriteLineLimit,
+  };
+}
+
+export class ConfigManager {
+  private readonly configPath: string;
+  private config: ServerConfig = getDefaultServerConfig();
   private initialized = false;
-  private _isFirstRun = false; // Track if this is the first run (config was just created)
-  // Serializes all disk writes so concurrent saves can't corrupt config.json.
   private writeChain: Promise<void> = Promise.resolve();
-  // True while a coalesced background write is already queued (see scheduleSave).
-  private saveScheduled = false;
 
-  constructor() {
-    // Get user's home directory
-    // Define config directory and file paths
-    this.configPath = CONFIG_FILE;
+  constructor(configPath = CONFIG_FILE) {
+    this.configPath = configPath;
   }
 
-  /**
-   * Initialize configuration - load from disk or create default
-   */
-  async init() {
+  async init(): Promise<void> {
     if (this.initialized) return;
 
     try {
-      // Ensure config directory exists
       const configDir = path.dirname(this.configPath);
       if (!existsSync(configDir)) {
-        await mkdir(configDir, { recursive: true });
+        await fs.mkdir(configDir, { recursive: true });
       }
 
-      // Check if config file exists
+      let loaded: unknown = {};
+      let fileExists = true;
       try {
-        await fs.access(this.configPath);
-        // Load existing config
-        const configData = await fs.readFile(this.configPath, 'utf8');
-        this.config = JSON.parse(configData);
-        this._isFirstRun = false;
-
-        // Configs created before this marker existed must not receive the
-        // welcome page retroactively when client eligibility changes later.
-        // New configs get this field from getDefaultConfig() and remain
-        // eligible across restarts until their first initialization.
-        if (this.config['welcomeOnboardingEligible'] === undefined) {
-          this.config['welcomeOnboardingEligible'] = false;
-          this.config['pendingWelcomeOnboarding'] = false;
-          await this.saveConfig();
-        }
+        loaded = JSON.parse(await fs.readFile(this.configPath, 'utf8'));
       } catch (error) {
-        // Config file doesn't exist, create default
-        this.config = this.getDefaultConfig();
-        this._isFirstRun = true; // This is a first run!
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') {
+          console.error('Failed to read local MCP configuration; defaults will be used:', error);
+        }
+        fileExists = false;
+      }
+
+      this.config = {
+        ...getDefaultServerConfig(),
+        ...sanitizeStoredConfig(loaded),
+      };
+      this.initialized = true;
+
+      const serializedLoaded = JSON.stringify(loaded);
+      const serializedCleaned = JSON.stringify(this.config);
+      if (!fileExists || serializedLoaded !== serializedCleaned) {
         await this.saveConfig();
       }
-      this.config['version'] = VERSION;
-
-      this.initialized = true;
     } catch (error) {
-      console.error('Failed to initialize config:', error);
-      // Fall back to default config in memory
-      this.config = this.getDefaultConfig();
+      console.error('Failed to initialize local MCP configuration:', error);
+      this.config = getDefaultServerConfig();
       this.initialized = true;
     }
   }
 
-  /**
-   * Alias for init() to maintain backward compatibility
-   */
-  async loadConfig() {
-    return this.init();
+  async loadConfig(): Promise<void> {
+    await this.init();
   }
 
-  /**
-   * Create default configuration
-   */
-  private getDefaultConfig(): ServerConfig {
-    return {
-      blockedCommands: [
-
-        // Disk and partition management
-        "mkfs",      // Create a filesystem on a device
-        "format",    // Format a storage device (cross-platform)
-        "mount",     // Mount a filesystem
-        "umount",    // Unmount a filesystem
-        "fdisk",     // Manipulate disk partition tables
-        "dd",        // Convert and copy files, can write directly to disks
-        "parted",    // Disk partition manipulator
-        "diskpart",  // Windows disk partitioning utility
-        
-        // System administration and user management
-        "sudo",      // Execute command as superuser
-        "su",        // Substitute user identity
-        "passwd",    // Change user password
-        "adduser",   // Add a user to the system
-        "useradd",   // Create a new user
-        "usermod",   // Modify user account
-        "groupadd",  // Create a new group
-        "chsh",      // Change login shell
-        "visudo",    // Edit the sudoers file
-        
-        // System control
-        "shutdown",  // Shutdown the system
-        "reboot",    // Restart the system
-        "halt",      // Stop the system
-        "poweroff",  // Power off the system
-        "init",      // Change system runlevel
-        
-        // Network and security
-        "iptables",  // Linux firewall administration
-        "firewall",  // Generic firewall command
-        "netsh",     // Windows network configuration
-        
-        // Windows system commands
-        "sfc",       // System File Checker
-        "bcdedit",   // Boot Configuration Data editor
-        "reg",       // Windows registry editor
-        "net",       // Network/user/service management
-        "sc",        // Service Control manager
-        "runas",     // Execute command as another user
-        "cipher",    // Encrypt/decrypt files or wipe data
-        "takeown"    // Take ownership of files
-      ],
-      defaultShell: (() => {
-        if (os.platform() === 'win32') {
-          return 'powershell.exe';
-        }
-        // Use user's actual shell from environment
-        // On macOS, default to zsh (default since Catalina) since process.env.SHELL
-        // may not be set when running inside Claude Desktop
-        const fallbackShell = os.platform() === 'darwin' ? '/bin/zsh' : '/bin/sh';
-        const userShell = process.env.SHELL || fallbackShell;
-        // Return just the shell path - we'll handle login shell flag elsewhere
-        return userShell;
-      })(),
-      allowedDirectories: [],
-      telemetryEnabled: true, // Default to opt-out approach (telemetry on by default)
-      fileWriteLineLimit: 50,  // Default line limit for file write operations (changed from 100)
-      fileReadLineLimit: 1000,  // Default line limit for file read operations (changed from character-based)
-      pendingWelcomeOnboarding: true, // New install flag - triggers A/B test for welcome page
-      welcomeOnboardingEligible: true // Distinguishes new installs from migrated legacy configs
-    };
-  }
-
-  /**
-   * Write the current in-memory config to disk. All writes funnel through
-   * writeChain (see saveConfig / scheduleSave) so overlapping saves can never
-   * interleave and corrupt the file. Previously every tool call could fire its
-   * own independent fs.writeFile of the same path.
-   */
   private async writeConfigToDisk(): Promise<void> {
     await fs.writeFile(this.configPath, JSON.stringify(this.config, null, 2), 'utf8');
   }
 
-  /**
-   * Awaitable save, serialized on writeChain. Use for explicit, user-driven
-   * config changes where the caller wants on-disk confirmation.
-   */
   private async saveConfig(): Promise<void> {
     const write = this.writeChain.then(() => this.writeConfigToDisk());
-    // Keep the chain alive even if this write rejects, so later writes still run.
     this.writeChain = write.catch(() => {});
-    return write;
+    await write;
   }
 
-  /**
-   * Non-blocking, coalesced save. Returns immediately; the write runs in the
-   * background. A burst of calls collapses to at most one queued write behind
-   * the in-flight one, so a storm of tool calls can't storm the disk — and,
-   * critically, can't pile up behind a saturated libuv threadpool and gate the
-   * tool-call response path. Used for high-frequency, non-critical persistence
-   * such as usage stats.
-   */
-  scheduleSave(): void {
-    if (this.saveScheduled) return; // a queued write will capture the latest config
-    this.saveScheduled = true;
-    this.writeChain = this.writeChain.then(async () => {
-      this.saveScheduled = false; // let the next burst queue a fresh write
-      try {
-        await this.writeConfigToDisk();
-      } catch (error) {
-        console.error('Failed to save config (background):', error);
-      }
-    });
-  }
-
-  /**
-   * Get the entire config
-   */
   async getConfig(): Promise<ServerConfig> {
     await this.init();
-    return { ...this.config };
+    return cloneConfig(this.config);
   }
 
-  /**
-   * Get a specific configuration value
-   */
-  async getValue(key: string): Promise<any> {
+  async getValue<K extends keyof ServerConfig>(key: K): Promise<ServerConfig[K]> {
     await this.init();
-    return this.config[key];
+    const value = this.config[key];
+    return Array.isArray(value) ? ([...value] as ServerConfig[K]) : value;
   }
 
-  /**
-   * Set a specific configuration value
-   */
-  async setValue(key: string, value: any): Promise<void> {
+  async setValue<K extends keyof ServerConfig>(key: K, value: ServerConfig[K]): Promise<void> {
     await this.init();
-
-    if (key === 'telemetryEnabled') {
-      value = normalizeTelemetryEnabledValue(value);
+    const next = sanitizeStoredConfig({ [key]: value })[key];
+    if (next === undefined) {
+      throw new Error(`Invalid configuration value for ${key}.`);
     }
-    
-    // Special handling for telemetry opt-out
-    if (key === 'telemetryEnabled' && isTelemetryDisabledValue(value)) {
-      // Get the current value before changing it
-      const currentValue: unknown = this.config[key];
-      const telemetryAlreadyDisabled = isTelemetryDisabledValue(currentValue);
-      
-      // Only capture the opt-out event if telemetry was previously enabled
-      if (!telemetryAlreadyDisabled) {
-        // Import the capture function dynamically to avoid circular dependencies
-        const { capture } = await import('./utils/capture.js');
-        
-        // Send a final telemetry event noting that the user has opted out
-        // This helps us track opt-out rates while respecting the user's choice
-        await capture('server_telemetry_opt_out', {
-          reason: 'user_disabled',
-          prev_value: currentValue
-        });
-      }
-    }
-    
-    // Update the value
-    this.config[key] = value;
+    this.config[key] = next as ServerConfig[K];
     await this.saveConfig();
   }
 
-  /**
-   * Update a value in memory and persist it WITHOUT blocking the caller.
-   * The tool-call response path must never wait on a disk write: when the libuv
-   * threadpool is saturated (e.g. many parallel reads stalled on a slow/cloud
-   * filesystem) an awaited write can't get a thread and would hang the response
-   * of even pure-memory tools. The in-memory value is updated synchronously so
-   * subsequent reads see it immediately; the write is coalesced in the
-   * background. Callers needing on-disk confirmation should use setValue.
-   */
-  async setValueNonBlocking(key: string, value: any): Promise<void> {
-    await this.init();
-    this.config[key] = value;
-    this.scheduleSave();
-  }
-
-  /**
-   * Update multiple configuration values at once
-   */
   async updateConfig(updates: Partial<ServerConfig>): Promise<ServerConfig> {
     await this.init();
-    this.config = { ...this.config, ...updates };
+    this.config = {
+      ...this.config,
+      ...sanitizeStoredConfig(updates),
+    };
     await this.saveConfig();
-    return { ...this.config };
+    return cloneConfig(this.config);
   }
 
-  /**
-   * Reset configuration to defaults
-   */
   async resetConfig(): Promise<ServerConfig> {
-    this.config = this.getDefaultConfig();
+    await this.init();
+    this.config = getDefaultServerConfig();
     await this.saveConfig();
-    return { ...this.config };
-  }
-
-  /**
-   * Check if this is the first run (config file was just created)
-   */
-  isFirstRun(): boolean {
-    return this._isFirstRun;
-  }
-
-  /**
-   * Get or create a persistent client ID for analytics and A/B tests
-   */
-  async getOrCreateClientId(): Promise<string> {
-    let clientId = await this.getValue('clientId');
-    if (!clientId) {
-      const { randomUUID } = await import('crypto');
-      clientId = randomUUID();
-      await this.setValue('clientId', clientId);
-    }
-    return clientId;
+    return cloneConfig(this.config);
   }
 }
 
-// Export singleton instance
 export const configManager = new ConfigManager();
