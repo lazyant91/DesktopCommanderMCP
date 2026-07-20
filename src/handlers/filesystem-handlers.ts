@@ -166,7 +166,7 @@ export async function handleMoveFile(args: unknown): Promise<ServerResult> {
 
 function formatValue(value: unknown): string {
   if (typeof value === 'string') return value;
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? String(value);
 }
 
 export async function handleGetFileInfo(args: unknown): Promise<ServerResult> {
