@@ -64,12 +64,15 @@ for (const removedPath of [
   'scripts/clear-fuzzy-logs.js',
   'scripts/export-fuzzy-logs.js',
   'scripts/count-tokens.js',
+  'scripts/ripgrep-wrapper.js',
+  'scripts/download-all-ripgrep.cjs',
   'PUBLISH.md',
   'manifest.template.json',
   'plugins',
   'skills',
   'testemonials',
   'logo.png',
+  'Dockerfile',
 ]) {
   await assertMissing(removedPath);
 }
