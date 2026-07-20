@@ -7,8 +7,6 @@ import { FilteredStdioServerTransport } from './custom-stdio.js';
 import { server, flushDeferredMessages } from './server.js';
 import { commandManager } from './command-manager.js';
 import { configManager } from './config-manager.js';
-import { runSetup } from './npm-scripts/setup.js';
-import { runUninstall } from './npm-scripts/uninstall.js';
 import { logger } from './utils/logger.js';
 
 void commandManager;
@@ -21,16 +19,6 @@ function deferLog(level: string, message: string) {
 
 async function runServer() {
   try {
-    if (process.argv[2] === 'setup') {
-      await runSetup();
-      return;
-    }
-
-    if (process.argv[2] === 'remove') {
-      await runUninstall();
-      return;
-    }
-
     const transport = new FilteredStdioServerTransport();
     global.mcpTransport = transport;
 
