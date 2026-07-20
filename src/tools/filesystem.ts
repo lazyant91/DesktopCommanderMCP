@@ -279,7 +279,14 @@ export async function moveFile(sourcePath: string, destinationPath: string): Pro
   await fs.rename(validSource, validDestination);
 }
 
-export async function getFileInfo(filePath: string): Promise<Record<string, unknown>> {
+export interface LocalFileInfo extends Omit<FileInfo, 'metadata'> {
+  lineCount?: number;
+  lastLine?: number;
+  appendPosition?: number;
+  isBinary?: boolean;
+}
+
+export async function getFileInfo(filePath: string): Promise<LocalFileInfo> {
   const validPath = await validatePath(filePath);
   const stats = await fs.stat(validPath);
   const fallback: FileInfo = {
@@ -300,7 +307,7 @@ export async function getFileInfo(filePath: string): Promise<Record<string, unkn
     // Basic stat information remains available if type-specific inspection fails.
   }
 
-  const result: Record<string, unknown> = {
+  const result: LocalFileInfo = {
     size: info.size ?? fallback.size,
     created: info.created ?? fallback.created,
     modified: info.modified ?? fallback.modified,

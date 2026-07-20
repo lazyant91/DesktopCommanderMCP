@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 
 for (const removedPath of [
   '../src/utils/open-browser.ts',
+  '../src/utils/ripgrep-resolver.ts',
+  '../src/utils/unsupportedParams.ts',
   '../src/types/caffeinate.d.ts',
 ]) {
   await assert.rejects(

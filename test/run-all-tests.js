@@ -1,10 +1,48 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const localConfigDir = path.join(os.homedir(), '.local-mcp-server');
+const localConfigPath = path.join(localConfigDir, 'config.json');
+
+async function snapshotLocalConfig() {
+  let directoryExisted = true;
+  try {
+    await fs.access(localConfigDir);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    directoryExisted = false;
+  }
+
+  try {
+    return {
+      directoryExisted,
+      contents: await fs.readFile(localConfigPath),
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    return { directoryExisted, contents: null };
+  }
+}
+
+async function restoreLocalConfig(snapshot) {
+  if (snapshot.contents !== null) {
+    await fs.mkdir(localConfigDir, { recursive: true });
+    await fs.writeFile(localConfigPath, snapshot.contents);
+    return;
+  }
+
+  await fs.rm(localConfigPath, { force: true });
+  if (!snapshot.directoryExisted) {
+    await fs.rmdir(localConfigDir).catch((error) => {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTEMPTY') throw error;
+    });
+  }
+}
 
 const colors = {
   reset: '\x1b[0m',
@@ -38,36 +76,41 @@ function runCommand(command, args, cwd = __dirname) {
   });
 }
 
-function runTestFile(testFile) {
-  return new Promise((resolve) => {
-    console.log(`\n${colors.cyan}Running test module: ${testFile}${colors.reset}`);
-    const startTime = Date.now();
+async function runTestFile(testFile) {
+  const configSnapshot = await snapshotLocalConfig();
+  try {
+    return await new Promise((resolve) => {
+      console.log(`\n${colors.cyan}Running test module: ${testFile}${colors.reset}`);
+      const startTime = Date.now();
 
-    const processHandle = spawn('node', [testFile], {
-      cwd: __dirname,
-      stdio: 'inherit',
-      shell: false,
-    });
+      const processHandle = spawn('node', [testFile], {
+        cwd: __dirname,
+        stdio: 'inherit',
+        shell: false,
+      });
 
-    processHandle.on('close', (code) => {
-      const duration = Date.now() - startTime;
-      if (code === 0) {
-        console.log(`${colors.green}✓ Test passed: ${testFile} (${duration}ms)${colors.reset}`);
-        resolve({ success: true, file: testFile, duration, exitCode: code });
-      } else {
-        console.error(
-          `${colors.red}✗ Test failed: ${testFile} (${duration}ms) - Exit code: ${code}${colors.reset}`,
-        );
-        resolve({ success: false, file: testFile, duration, exitCode: code });
-      }
-    });
+      processHandle.on('close', (code) => {
+        const duration = Date.now() - startTime;
+        if (code === 0) {
+          console.log(`${colors.green}✓ Test passed: ${testFile} (${duration}ms)${colors.reset}`);
+          resolve({ success: true, file: testFile, duration, exitCode: code });
+        } else {
+          console.error(
+            `${colors.red}✗ Test failed: ${testFile} (${duration}ms) - Exit code: ${code}${colors.reset}`,
+          );
+          resolve({ success: false, file: testFile, duration, exitCode: code });
+        }
+      });
 
-    processHandle.on('error', (error) => {
-      const duration = Date.now() - startTime;
-      console.error(`${colors.red}✗ Error running ${testFile}: ${error.message}${colors.reset}`);
-      resolve({ success: false, file: testFile, duration, error: error.message });
+      processHandle.on('error', (error) => {
+        const duration = Date.now() - startTime;
+        console.error(`${colors.red}✗ Error running ${testFile}: ${error.message}${colors.reset}`);
+        resolve({ success: false, file: testFile, duration, error: error.message });
+      });
     });
-  });
+  } finally {
+    await restoreLocalConfig(configSnapshot);
+  }
 }
 
 async function buildProject() {
