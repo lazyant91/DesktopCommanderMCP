@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 import {
-  configManager,
+  getDefaultServerConfig,
   sanitizeStoredConfig,
 } from '../dist/config-manager.js';
 import { CONFIG_FIELD_KEYS } from '../dist/config-field-definitions.js';
@@ -19,7 +19,7 @@ assert.deepEqual(CONFIG_FIELD_KEYS, expectedKeys);
 
 const cleaned = sanitizeStoredConfig({
   blockedCommands: ['format'],
-  allowedDirectories: ['C:\\work'],
+  allowedDirectories: ['/workspace'],
   defaultShell: 'powershell.exe',
   fileReadLineLimit: 2000,
   fileWriteLineLimit: 200,
@@ -34,14 +34,13 @@ const cleaned = sanitizeStoredConfig({
 
 assert.deepEqual(cleaned, {
   blockedCommands: ['format'],
-  allowedDirectories: ['C:\\work'],
+  allowedDirectories: ['/workspace'],
   defaultShell: 'powershell.exe',
   fileReadLineLimit: 2000,
   fileWriteLineLimit: 200,
 });
 
-const defaults = await configManager.resetConfig();
-assert.deepEqual(Object.keys(defaults), expectedKeys);
+assert.deepEqual(Object.keys(getDefaultServerConfig()), expectedKeys);
 
 const configToolSource = await fs.readFile(new URL('../src/tools/config.ts', import.meta.url), 'utf8');
 for (const removedTerm of [
