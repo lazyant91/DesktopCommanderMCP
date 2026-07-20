@@ -88,9 +88,10 @@ export class FilteredStdioServerTransport extends StdioServerTransport {
 
   /** Send or buffer a protocol-safe logging notification. */
   public sendLog(level: LogLevel, message: string, data?: unknown): void {
-    const payload = data && typeof data === 'object'
-      ? [{ message, ...(data as Record<string, unknown>) }]
-      : [data === undefined ? message : { message, data }];
+    const payload =
+      data && typeof data === 'object'
+        ? [{ message, ...(data as Record<string, unknown>) }]
+        : [data === undefined ? message : { message, data }];
 
     if (!this.isInitialized) {
       this.bufferMessage(level, payload);
@@ -116,7 +117,9 @@ export class FilteredStdioServerTransport extends StdioServerTransport {
       });
     } catch {
       this.sendLogNotification('error', [
-        `Progress notification failed: ${token} ${value}${total === undefined ? '' : `/${total}`}`,
+        `Progress notification failed: ${token} ${value}${
+          total === undefined ? '' : `/${total}`
+        }`,
       ]);
     }
   }
@@ -189,14 +192,10 @@ export class FilteredStdioServerTransport extends StdioServerTransport {
   }
 
   private looksLikeJsonRpc(value: string): boolean {
-    if (!value.startsWith('{')) return false;
-
-    try {
-      const parsed = JSON.parse(value) as Record<string, unknown>;
-      return parsed.jsonrpc === '2.0' || 'method' in parsed || 'id' in parsed;
-    } catch {
-      return false;
-    }
+    return (
+      value.startsWith('{') &&
+      (value.includes('"jsonrpc"') || value.includes('"method"') || value.includes('"id"'))
+    );
   }
 
   private sendLogNotification(level: LogLevel, args: unknown[]): void {
