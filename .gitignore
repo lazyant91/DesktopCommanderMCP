@@ -11,6 +11,7 @@ dist/
 # IDE and editor files
 .idea/
 .vscode/
+.history/
 *.swp
 *.swo
 .DS_Store
@@ -20,41 +21,25 @@ dist/
 .env.local
 .env.*.local
 
-# Logs
+# Logs and coverage
 logs/
 *.log
-
-# Coverage directory used by tools like istanbul
 coverage/
 
-# Optional npm cache directory
-.npm
+# Package-manager caches
+.npm/
 
-# Optional eslint cache
+# Tool caches
 .eslintcache
 
-.idea
-.history
-
-server.log
-
-# Local planning/documentation directories
+# Local planning directories
 plans/
 planning/
 
-# Test output files
+# Test-generated output
 test/test_output/
 test/samples/*.md
 test/samples/*_images/
-
-# MCPB related files
-*.mcpb
-mcpb-bundle/
-.mcpregistry_github_token
-.mcpregistry_registry_token
-
-# Test files
 test_files/
 test_fix.js
 test_search.js
-.ripgrep-downloads/
