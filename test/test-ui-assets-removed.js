@@ -14,9 +14,19 @@ const packageJson = JSON.parse(
 );
 
 assert.equal(packageJson.scripts.build.includes('build-ui-runtime'), false);
-await assertMissing('src/ui');
-await assertMissing('scripts/build-ui-runtime.cjs');
-await assertMissing('test/test-ui-event-tracking.js');
-await assertMissing('test/test-markdown-preview.js');
+
+for (const removedPath of [
+  'src/ui',
+  'scripts/build-ui-runtime.cjs',
+  'test/test-ui-event-tracking.js',
+  'test/test-markdown-preview.js',
+  'test/test-file-preview-image-runtime.js',
+  'test/test-file-preview-directory-runtime.js',
+  'test/test-widget-state-runtime.js',
+  'test/test-markdown-editor-roundtrip.js',
+  'test/test-markdown-editor-edit-diff.js',
+]) {
+  await assertMissing(removedPath);
+}
 
 console.log('UI asset removal contract passed');
