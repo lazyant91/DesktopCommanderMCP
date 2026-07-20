@@ -37,6 +37,11 @@ for (const documentPath of ['../README.md', '../FAQ.md', '../SECURITY.md']) {
   }
 }
 
+const readme = await fs.readFile(new URL('../README.md', import.meta.url), 'utf8');
+assert.equal(readme.includes('Diagnostic logging is written to stderr'), false);
+assert.equal(readme.includes('stdout for MCP JSON-RPC messages'), true);
+assert.equal(readme.includes('MCP logging notifications'), true);
+
 await fs.access(new URL('../THIRD_PARTY_NOTICES.md', import.meta.url));
 
 console.log('Standalone Local MCP identity contract passed');
