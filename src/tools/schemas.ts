@@ -4,13 +4,7 @@ export const GetConfigArgsSchema = z.object({});
 
 export const SetConfigValueArgsSchema = z.object({
   key: z.string(),
-  value: z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.array(z.string()),
-    z.null(),
-  ]),
+  value: z.union([z.string(), z.number(), z.array(z.string())]),
 });
 
 export const ListProcessesArgsSchema = z.object({});
