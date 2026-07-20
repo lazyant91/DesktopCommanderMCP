@@ -32,7 +32,7 @@ npm run build
 node dist/index.js
 ```
 
-The process communicates exclusively through MCP messages on stdin and stdout. Diagnostic logging is written to stderr.
+The process reserves stdout for MCP JSON-RPC messages. Console output is wrapped as MCP logging notifications, while selected low-level diagnostics may be written to stderr.
 
 For protocol inspection during development:
 
