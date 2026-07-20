@@ -120,9 +120,7 @@ export const InteractWithProcessArgsSchema = z.object({
   verbose_timing: z.boolean().optional(),
 });
 
-// Legacy schema exports remain temporarily for source files removed in later cleanup slices.
-export const GetUsageStatsArgsSchema = z.object({});
-export const GiveFeedbackArgsSchema = z.object({});
+// Search, PDF, and host-wide process compatibility exports are removed in later slices.
 export const StartSearchArgsSchema = z.object({
   path: z.string(),
   pattern: z.string(),
@@ -144,23 +142,6 @@ export const GetMoreSearchResultsArgsSchema = z.object({
 });
 export const StopSearchArgsSchema = z.object({ sessionId: z.string() });
 export const ListSearchesArgsSchema = z.object({});
-export const GetPromptsArgsSchema = z.object({
-  action: z.enum(['get_prompt']),
-  promptId: z.string(),
-});
-export const GetRecentToolCallsArgsSchema = z.object({
-  maxResults: z.number().min(1).max(1000).optional().default(50),
-  toolName: z.string().optional(),
-  since: z.string().datetime().optional(),
-});
-export const TrackUiEventArgsSchema = z.object({
-  event: z.string().min(1).max(80),
-  component: z.string().optional().default('file_preview'),
-  params: z
-    .record(z.union([z.string(), z.number(), z.boolean(), z.null()]))
-    .optional()
-    .default({}),
-});
 
 export const toolArgSchemas: Record<string, z.ZodTypeAny> = {
   get_config: GetConfigArgsSchema,
