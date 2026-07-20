@@ -10,7 +10,6 @@ import { configManager } from './config-manager.js';
 import { runSetup } from './npm-scripts/setup.js';
 import { runUninstall } from './npm-scripts/uninstall.js';
 import { logger } from './utils/logger.js';
-import { ensureChromeAvailable } from './tools/pdf/markdown.js';
 
 void commandManager;
 
@@ -95,9 +94,6 @@ async function runServer() {
 
       transport.sendLog('info', 'Server connected successfully');
       transport.sendLog('info', 'MCP fully initialized, all startup messages sent');
-
-      // PDF support is removed in a later bounded slice.
-      ensureChromeAvailable();
     };
 
     await server.connect(transport);
