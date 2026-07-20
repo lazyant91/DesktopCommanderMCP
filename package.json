@@ -1,25 +1,33 @@
 {
-  "name": "@wonderwhy-er/desktop-commander",
-  "version": "0.2.46",
-  "description": "MCP server for terminal operations and file editing",
-  "mcpName": "io.github.wonderwhy-er/desktop-commander",
+  "name": "@lazyant91/local-mcp-server",
+  "version": "0.1.0",
+  "description": "Standalone stdio MCP server for local terminal sessions and filesystem operations",
+  "mcpName": "io.github.lazyant91/local-mcp-server",
   "license": "MIT",
-  "author": "Eduards Ruzga",
-  "homepage": "https://github.com/wonderwhy-er/DesktopCommanderMCP",
+  "author": "lazyant91",
+  "contributors": [
+    {
+      "name": "Eduards Ruzga",
+      "url": "https://github.com/wonderwhy-er"
+    }
+  ],
+  "homepage": "https://github.com/lazyant91/DesktopCommanderMCP",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wonderwhy-er/DesktopCommanderMCP.git"
+    "url": "https://github.com/lazyant91/DesktopCommanderMCP.git"
   },
-  "bugs": "https://github.com/wonderwhy-er/DesktopCommanderMCP/issues",
+  "bugs": "https://github.com/lazyant91/DesktopCommanderMCP/issues",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
   },
   "bin": {
-    "desktop-commander": "dist/index.js"
+    "local-mcp-server": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -41,21 +49,12 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
+    "local-mcp",
+    "stdio",
     "terminal",
-    "claude",
-    "ai",
-    "command-line",
-    "process-management",
-    "file-editing",
-    "code-editing",
-    "diff",
-    "patch",
-    "block-editing",
-    "file-system",
-    "text-manipulation",
-    "code-modification",
-    "surgical-edits",
-    "file-operations"
+    "process-session",
+    "filesystem",
+    "file-editing"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
