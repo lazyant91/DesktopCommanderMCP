@@ -97,7 +97,7 @@ async function runServer() {
       method: 'notifications/message',
       params: {
         level: 'error',
-        logger: 'desktop-commander',
+        logger: 'local-mcp-server',
         data: `Failed to start server: ${errorMessage} (${new Date().toISOString()})`,
       },
     };

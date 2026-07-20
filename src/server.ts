@@ -192,7 +192,7 @@ export function flushDeferredMessages(): void {}
 
 export const server = new Server(
   {
-    name: 'desktop-commander',
+    name: 'local-mcp-server',
     version: VERSION,
   },
   {
@@ -225,7 +225,7 @@ server.setRequestHandler(InitializeRequestSchema, async (request: InitializeRequ
       logging: {},
     },
     serverInfo: {
-      name: 'desktop-commander',
+      name: 'local-mcp-server',
       version: VERSION,
     },
   };
