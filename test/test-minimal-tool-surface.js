@@ -24,6 +24,8 @@ const expectedTools = [
 assert.deepEqual(toolDefinitions.map((tool) => tool.name), expectedTools);
 assert.deepEqual(Object.keys(toolArgSchemas), expectedTools);
 
+const definitions = Object.fromEntries(toolDefinitions.map((tool) => [tool.name, tool]));
+
 for (const tool of toolDefinitions) {
   assert.equal('_meta' in tool, false, `${tool.name} must not expose MCP App UI metadata`);
 }
@@ -44,6 +46,31 @@ for (const removedTool of [
 ]) {
   assert.equal(expectedTools.includes(removedTool), false);
   assert.equal(removedTool in toolArgSchemas, false);
+}
+
+function propertiesFor(toolName) {
+  return Object.keys(definitions[toolName].inputSchema.properties ?? {});
+}
+
+assert.deepEqual(propertiesFor('get_config'), []);
+assert.deepEqual(propertiesFor('read_file'), ['path', 'offset', 'length']);
+assert.deepEqual(propertiesFor('write_file'), ['path', 'content', 'mode']);
+assert.deepEqual(propertiesFor('list_directory'), ['path', 'depth']);
+assert.deepEqual(propertiesFor('edit_block'), [
+  'file_path',
+  'old_string',
+  'new_string',
+  'expected_replacements',
+]);
+assert.deepEqual(propertiesFor('start_process'), [
+  'command',
+  'timeout_ms',
+  'shell',
+  'verbose_timing',
+]);
+
+for (const removedParameter of ['isUrl', 'sheet', 'range', 'options', 'origin', 'content']) {
+  assert.equal(propertiesFor('read_file').includes(removedParameter), false);
 }
 
 console.log('Minimal tool surface contract passed');
