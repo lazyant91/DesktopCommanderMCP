@@ -1,5 +1,5 @@
-import { access, readFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
+import { access, readFile } from 'node:fs/promises';
 
 import {
   CONFIG_FIELD_DEFINITIONS,
@@ -9,8 +9,8 @@ import {
 } from '../config-field-definitions.js';
 import { configManager, type ServerConfig } from '../config-manager.js';
 import { currentClient } from '../server.js';
-import { SetConfigValueArgsSchema } from './schemas.js';
 import { getSystemInfo } from '../utils/system-info.js';
+import { SetConfigValueArgsSchema } from './schemas.js';
 
 async function pathExists(pathValue: string): Promise<boolean> {
   try {
@@ -148,6 +148,30 @@ function parseConfigValue(key: ConfigFieldKey, value: unknown): ServerConfig[Con
   return value.trim();
 }
 
+async function storeConfigValue(
+  key: ConfigFieldKey,
+  value: ServerConfig[ConfigFieldKey],
+): Promise<void> {
+  switch (key) {
+    case 'blockedCommands':
+    case 'allowedDirectories':
+      if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+        throw new Error(`${key} must be an array of strings.`);
+      }
+      await configManager.setValue(key, value);
+      return;
+    case 'defaultShell':
+      if (typeof value !== 'string') throw new Error(`${key} must be a string.`);
+      await configManager.setValue(key, value);
+      return;
+    case 'fileReadLineLimit':
+    case 'fileWriteLineLimit':
+      if (typeof value !== 'number') throw new Error(`${key} must be a number.`);
+      await configManager.setValue(key, value);
+      return;
+  }
+}
+
 export async function setConfigValue(args: unknown) {
   const parsed = SetConfigValueArgsSchema.safeParse(args);
   if (!parsed.success) {
@@ -171,7 +195,7 @@ export async function setConfigValue(args: unknown) {
 
   try {
     const value = parseConfigValue(parsed.data.key, parsed.data.value);
-    await configManager.setValue(parsed.data.key, value as never);
+    await storeConfigValue(parsed.data.key, value);
     const updated = await configManager.getConfig();
     return {
       content: [
