@@ -24,26 +24,101 @@ const client = new Client(
   { capabilities: {} },
 );
 
-async function callTool(name, args) {
+async function callTool(name, args, timeout = 60_000) {
   const result = await client.callTool(
     { name, arguments: args },
     undefined,
-    { timeout: 60_000 },
+    { timeout },
   );
   assert.notEqual(result.isError, true, `${name} returned an error: ${JSON.stringify(result)}`);
   return result;
 }
 
-function buildFixture(workflowId) {
-  const lines = [`# Workflow ${workflowId}`, ''];
-  for (let line = 1; line <= 600; line += 1) {
+function marker(workflowId, index, state) {
+  return `TARGET_${workflowId}_${String(index).padStart(3, '0')}: ${state} value`;
+}
+
+function buildFixture(workflowId, editCount, language = 'markdown') {
+  const lines = language === 'python'
+    ? ['# generated Python edit fixture', `WORKFLOW = ${JSON.stringify(workflowId)}`, '']
+    : [`# Workflow ${workflowId}`, ''];
+
+  for (let index = 1; index <= editCount; index += 1) {
+    lines.push(marker(workflowId, index, 'original'));
     lines.push(
-      line === 300
-        ? `TARGET_${workflowId}: original value`
-        : `Line ${line}: retained text edit performance fixture for ${workflowId}`,
+      language === 'python'
+        ? `VALUE_${index} = ${JSON.stringify(`context ${index} for ${workflowId}`)}`
+        : `Context ${index}: retained text edit performance fixture for ${workflowId}`,
     );
   }
+
+  for (let line = 1; line <= 900; line += 1) {
+    lines.push(
+      language === 'python'
+        ? `EXTRA_${line} = ${JSON.stringify(`extra Python line ${line}`)}`
+        : `Extra line ${line}: local MCP text editing remains responsive`,
+    );
+  }
+
   return lines.join('\n');
+}
+
+async function runSequentialEditWorkflow(workflowId, extension, editCount, language) {
+  const filePath = path.join(testDir, `${workflowId}.${extension}`);
+  await callTool('write_file', {
+    path: filePath,
+    content: buildFixture(workflowId, editCount, language),
+    mode: 'rewrite',
+  });
+
+  for (let index = 1; index <= editCount; index += 1) {
+    await callTool('edit_block', {
+      file_path: filePath,
+      old_string: marker(workflowId, index, 'original'),
+      new_string: marker(workflowId, index, 'updated'),
+      expected_replacements: 1,
+    });
+
+    if (index % 10 === 0) {
+      await callTool('list_sessions', {});
+    }
+  }
+
+  const persisted = await fs.readFile(filePath, 'utf8');
+  for (let index = 1; index <= editCount; index += 1) {
+    assert.equal(persisted.includes(marker(workflowId, index, 'updated')), true);
+    assert.equal(persisted.includes(marker(workflowId, index, 'original')), false);
+  }
+
+  const readResult = await callTool('read_file', {
+    path: filePath,
+    offset: 0,
+    length: 120,
+  });
+  const readText = readResult.content.map((item) => item.text ?? '').join('\n');
+  assert.equal(readText.includes(marker(workflowId, 1, 'updated')), true);
+}
+
+async function runConcurrentFileWorkflows(count) {
+  await Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      const workflowId = `concurrent-${String(index + 1).padStart(2, '0')}`;
+      const filePath = path.join(testDir, `${workflowId}.md`);
+      await callTool('write_file', {
+        path: filePath,
+        content: buildFixture(workflowId, 1),
+        mode: 'rewrite',
+      });
+      await callTool('edit_block', {
+        file_path: filePath,
+        old_string: marker(workflowId, 1, 'original'),
+        new_string: marker(workflowId, 1, 'updated'),
+        expected_replacements: 1,
+      });
+      const persisted = await fs.readFile(filePath, 'utf8');
+      assert.equal(persisted.includes(marker(workflowId, 1, 'updated')), true);
+    }),
+  );
 }
 
 try {
@@ -54,47 +129,20 @@ try {
   });
   await callTool('set_config_value', {
     key: 'fileWriteLineLimit',
-    value: 1000,
+    value: 5000,
   });
   await callTool('set_config_value', {
     key: 'fileReadLineLimit',
-    value: 400,
+    value: 500,
   });
 
   const startedAt = performance.now();
-  const workflowCount = 8;
-
-  await Promise.all(
-    Array.from({ length: workflowCount }, async (_, index) => {
-      const workflowId = String(index + 1).padStart(2, '0');
-      const filePath = path.join(testDir, `workflow-${workflowId}.md`);
-      const original = `TARGET_${workflowId}: original value`;
-      const replacement = `TARGET_${workflowId}: updated value`;
-
-      await callTool('write_file', {
-        path: filePath,
-        content: buildFixture(workflowId),
-        mode: 'rewrite',
-      });
-      await callTool('edit_block', {
-        file_path: filePath,
-        old_string: original,
-        new_string: replacement,
-        expected_replacements: 1,
-      });
-      const readResult = await callTool('read_file', {
-        path: filePath,
-        offset: 295,
-        length: 20,
-      });
-      const text = readResult.content.map((item) => item.text ?? '').join('\n');
-      assert.equal(text.includes(replacement), true);
-      assert.equal(text.includes(original), false);
-    }),
-  );
+  await runSequentialEditWorkflow('markdown-100', 'md', 100, 'markdown');
+  await runSequentialEditWorkflow('python-40', 'py', 40, 'python');
+  await runConcurrentFileWorkflows(8);
 
   const elapsed = performance.now() - startedAt;
-  assert.equal(elapsed < 120_000, true, `text edit workflows took ${elapsed.toFixed(0)}ms`);
+  assert.equal(elapsed < 180_000, true, `text edit workflows took ${elapsed.toFixed(0)}ms`);
   console.log(`Text edit performance contract passed in ${elapsed.toFixed(0)}ms`);
 } finally {
   await client.close().catch(() => {});
