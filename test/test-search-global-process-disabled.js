@@ -1,44 +1,36 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-import {
-  handleListProcesses,
-  handleKillProcess,
-} from '../dist/handlers/process-handlers.js';
-import {
-  handleStartSearch,
-  handleGetMoreSearchResults,
-  handleStopSearch,
-  handleListSearches,
-} from '../dist/handlers/search-handlers.js';
-import { searchManager } from '../dist/search-manager.js';
-
-for (const result of [
-  await handleListProcesses(),
-  await handleKillProcess({ pid: process.pid }),
-  await handleStartSearch({ path: '.', pattern: 'needle', searchType: 'content' }),
-  await handleGetMoreSearchResults({ sessionId: 'missing' }),
-  await handleStopSearch({ sessionId: 'missing' }),
-  await handleListSearches(),
+for (const removedPath of [
+  '../src/search-manager.ts',
+  '../src/handlers/search-handlers.ts',
+  '../src/handlers/process-handlers.ts',
+  '../src/tools/process.ts',
 ]) {
-  assert.equal(result.isError, true);
-  assert.equal(result.content[0].text.includes('not available'), true);
+  await assert.rejects(
+    fs.access(new URL(removedPath, import.meta.url)),
+    undefined,
+    `dead runtime compatibility source still exists: ${removedPath}`,
+  );
 }
 
-await assert.rejects(
-  searchManager.startSearch({ rootPath: '.', pattern: 'needle', searchType: 'content' }),
-  /not available/i,
+const handlerIndexSource = await fs.readFile(
+  new URL('../src/handlers/index.ts', import.meta.url),
+  'utf8',
 );
-assert.deepEqual(searchManager.listSearchSessions(), []);
-assert.equal(searchManager.terminateSearch('missing'), false);
+assert.equal(handlerIndexSource.includes('search-handlers'), false);
+assert.equal(handlerIndexSource.includes('process-handlers'), false);
 
-const processSource = await fs.readFile(new URL('../src/tools/process.ts', import.meta.url), 'utf8');
-const searchSource = await fs.readFile(new URL('../src/search-manager.ts', import.meta.url), 'utf8');
-assert.equal(processSource.includes('process.kill'), false);
-assert.equal(processSource.includes('tasklist'), false);
-assert.equal(processSource.includes('ps aux'), false);
-assert.equal(searchSource.includes('child_process'), false);
-assert.equal(searchSource.includes('ripgrep'), false);
-assert.equal(searchSource.includes('PizZip'), false);
+const schemasSource = await fs.readFile(new URL('../src/tools/schemas.ts', import.meta.url), 'utf8');
+for (const removedSchema of [
+  'ListProcessesArgsSchema',
+  'KillProcessArgsSchema',
+  'StartSearchArgsSchema',
+  'GetMoreSearchResultsArgsSchema',
+  'StopSearchArgsSchema',
+  'ListSearchesArgsSchema',
+]) {
+  assert.equal(schemasSource.includes(removedSchema), false, `legacy schema remains: ${removedSchema}`);
+}
 
-console.log('Search and global process removal contract passed');
+console.log('Search and global process source removal contract passed');

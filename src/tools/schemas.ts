@@ -7,8 +7,6 @@ export const SetConfigValueArgsSchema = z.object({
   value: z.union([z.string(), z.number(), z.array(z.string())]),
 });
 
-export const ListProcessesArgsSchema = z.object({});
-
 export const StartProcessArgsSchema = z.object({
   command: z.string(),
   timeout_ms: z.number(),
@@ -30,10 +28,6 @@ export const ForceTerminateArgsSchema = z.object({
 
 export const ListSessionsArgsSchema = z.object({});
 
-export const KillProcessArgsSchema = z.object({
-  pid: z.number(),
-});
-
 export const ReadFileArgsSchema = z.object({
   path: z.string(),
   offset: z.number().optional().default(0),
@@ -48,43 +42,6 @@ export const WriteFileArgsSchema = z.object({
   path: z.string(),
   content: z.string(),
   mode: z.enum(['rewrite', 'append']).default('rewrite'),
-});
-
-export const PdfInsertOperationSchema = z.object({
-  type: z.literal('insert'),
-  pageIndex: z.number(),
-  markdown: z.string().optional(),
-  sourcePdfPath: z.string().optional(),
-  pdfOptions: z.object({}).passthrough().optional(),
-});
-
-export const PdfDeleteOperationSchema = z.object({
-  type: z.literal('delete'),
-  pageIndexes: z.array(z.number()),
-});
-
-export const PdfOperationSchema = z.union([
-  PdfInsertOperationSchema,
-  PdfDeleteOperationSchema,
-]);
-
-export const WritePdfArgsSchema = z.object({
-  path: z.string(),
-  content: z.preprocess(
-    (value) => {
-      if (typeof value === 'string' && value.trim().startsWith('[')) {
-        try {
-          return JSON.parse(value);
-        } catch {
-          return value;
-        }
-      }
-      return value;
-    },
-    z.union([z.string(), z.array(PdfOperationSchema)]),
-  ),
-  outputPath: z.string().optional(),
-  options: z.object({}).passthrough().optional(),
 });
 
 export const CreateDirectoryArgsSchema = z.object({
@@ -119,29 +76,6 @@ export const InteractWithProcessArgsSchema = z.object({
   wait_for_prompt: z.boolean().optional(),
   verbose_timing: z.boolean().optional(),
 });
-
-// Search, PDF, and host-wide process compatibility exports are removed in later slices.
-export const StartSearchArgsSchema = z.object({
-  path: z.string(),
-  pattern: z.string(),
-  searchType: z.enum(['files', 'content']).default('files'),
-  filePattern: z.string().optional(),
-  ignoreCase: z.boolean().optional().default(true),
-  maxResults: z.number().optional(),
-  includeHidden: z.boolean().optional().default(false),
-  contextLines: z.number().optional().default(5),
-  timeout_ms: z.number().optional(),
-  earlyTermination: z.boolean().optional(),
-  literalSearch: z.boolean().optional().default(false),
-  origin: z.enum(['ui', 'llm']).optional(),
-});
-export const GetMoreSearchResultsArgsSchema = z.object({
-  sessionId: z.string(),
-  offset: z.number().optional().default(0),
-  length: z.number().optional().default(100),
-});
-export const StopSearchArgsSchema = z.object({ sessionId: z.string() });
-export const ListSearchesArgsSchema = z.object({});
 
 export const toolArgSchemas: Record<string, z.ZodTypeAny> = {
   get_config: GetConfigArgsSchema,

@@ -1,24 +1,24 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-import {
-  editPdf,
-  ensureChromeAvailable,
-  parseMarkdownToPdf,
-  parsePdfToMarkdown,
-} from '../dist/tools/pdf/index.js';
+await assert.rejects(
+  fs.access(new URL('../src/tools/pdf/index.ts', import.meta.url)),
+  undefined,
+  'PDF compatibility source still exists',
+);
+
+const schemasSource = await fs.readFile(new URL('../src/tools/schemas.ts', import.meta.url), 'utf8');
+for (const removedSchema of [
+  'PdfInsertOperationSchema',
+  'PdfDeleteOperationSchema',
+  'PdfOperationSchema',
+  'WritePdfArgsSchema',
+]) {
+  assert.equal(schemasSource.includes(removedSchema), false, `PDF schema remains: ${removedSchema}`);
+}
 
 const indexSource = await fs.readFile(new URL('../src/index.ts', import.meta.url), 'utf8');
-const pdfSource = await fs.readFile(new URL('../src/tools/pdf/index.ts', import.meta.url), 'utf8');
-
+assert.equal(indexSource.includes('tools/pdf'), false);
 assert.equal(indexSource.includes('ensureChromeAvailable'), false);
-assert.equal(pdfSource.includes('md-to-pdf'), false);
-assert.equal(pdfSource.includes('pdf-lib'), false);
-assert.equal(pdfSource.includes('@opendocsg/pdf2md'), false);
-assert.equal(ensureChromeAvailable(), undefined);
 
-await assert.rejects(parsePdfToMarkdown('example.pdf'), /not available/i);
-await assert.rejects(parseMarkdownToPdf('# example'), /not available/i);
-await assert.rejects(editPdf('example.pdf', []), /not available/i);
-
-console.log('PDF runtime removal contract passed');
+console.log('PDF source removal contract passed');
