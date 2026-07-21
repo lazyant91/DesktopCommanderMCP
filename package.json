@@ -1,13 +1,13 @@
 {
   "name": "@lazyant91/local-mcp-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Standalone stdio MCP server for local terminal sessions and filesystem operations",
   "mcpName": "io.github.lazyant91/local-mcp-server",
   "license": "MIT",
   "author": "lazyant91",
   "contributors": [
     {
-      "name": "Eduards Ruzga",
+      "name": "Eduard Ruzga",
       "url": "https://github.com/wonderwhy-er"
     }
   ],
@@ -26,6 +26,7 @@
   },
   "files": [
     "dist",
+    "CHANGELOG.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
   ],

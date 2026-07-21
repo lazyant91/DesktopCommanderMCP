@@ -1,47 +1,86 @@
 # Security Policy
 
+## Supported versions
+
+| Version | Supported |
+| --- | --- |
+| 1.0.x | Yes |
+| Earlier fork revisions | No |
+| Upstream DesktopCommanderMCP releases | Maintained by the upstream project |
+
 ## Security model
 
 Local MCP Server is a privileged local automation process. It can read and write files and execute terminal commands with the permissions of the operating-system user that starts it.
 
-The connected MCP client and the account controlling that client are assumed to be trusted. The server does not attempt to distinguish a genuine user request from prompt injection or a compromised client.
+The connected MCP client and the account controlling that client are assumed to be trusted. The server does not attempt to distinguish a genuine user request from prompt injection, malicious repository content, a compromised client, or a compromised model account.
+
+The server has no built-in hosted backend, account system, telemetry transport, or remote-control service. External connectivity can still be introduced by the MCP client, by a user-selected bridge, or by commands launched through the terminal tools.
 
 ## Built-in guardrails
 
 | Control | Purpose | Security boundary? |
 | --- | --- | --- |
-| Allowed directories | Reduce accidental access by structured file tools | No |
-| Command blocklist | Reduce accidental execution of listed commands | No |
+| `allowedDirectories` | Reduce accidental access by structured file tools | No |
+| Command blocklist | Reject explicitly listed command names | No |
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
+| Exact edit matching | Prevent ambiguous text replacements | No |
+| Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
-Terminal execution is intentionally open-ended. A command can invoke other interpreters, use absolute paths, or access resources outside the structured filesystem roots. Therefore file and command policies must not be described as a sandbox.
+Terminal execution is intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. File roots and command filtering must not be described as a sandbox.
 
 ## Recommended operation
 
-- Start the server only for MCP clients you trust.
-- Run it as a non-administrator user.
-- Restrict structured file tools to project-specific directories where practical.
+- Connect only MCP clients and accounts you trust.
+- Run the server as a non-administrator user.
+- Restrict `allowedDirectories` to project-specific roots where practical.
 - Review destructive commands and file changes when the context warrants it.
-- Keep credentials and unrelated private data outside the account or environment used by the server.
+- Keep credentials and unrelated private data outside the execution account.
+- Avoid exposing the stdio process through an untrusted bridge or shared service.
 - Use a separate operating-system account, virtual machine, or dedicated workstation when stronger isolation is required.
+- Keep Node.js and project dependencies updated through reviewed releases.
 
 ## Known limitations
 
 - `allowedDirectories` does not constrain arbitrary terminal commands.
-- Command-name filtering can be bypassed by scripts, aliases, alternate interpreters, absolute paths, or shell composition.
+- Command-name filtering can be bypassed through scripts, aliases, alternate interpreters, absolute paths, or shell composition.
 - A trusted client can request destructive operations.
-- The server does not protect against compromise of the connected client or its account.
-- Process-session cleanup depends on operating-system and child-process behavior and must be validated on the target host.
+- Tool descriptions and annotations do not enforce user intent.
+- The server does not protect against compromise of the connected client, model account, operating system, or launched command.
+- Process cleanup depends on operating-system and child-process behavior.
+- Tool output can expose secrets already available to the launching user.
+
+## Dependency and release policy
+
+The v1.0.0 dependency graph is recorded in `package-lock.json`. Release validation is performed locally on the exact `main` SHA used for the release tag. GitHub Actions are not used as a security or release gate in this repository.
+
+A version badge or passing test suite does not guarantee that the server is safe for every environment. Users remain responsible for account permissions, network policy, client trust, and isolation.
 
 ## Sensitive information
 
-Bug reports and logs must not include secrets, tokens, credentials, private file contents, or unnecessary command output. Reduce reproductions to the minimum data required to demonstrate the issue.
+Bug reports, logs, screenshots, and reproductions must not include secrets, tokens, credentials, private file contents, personal information, or unnecessary command output.
+
+Before sharing a reproduction:
+
+1. replace real paths and usernames with placeholders;
+2. remove access tokens and environment variables;
+3. reduce files to the minimum content required;
+4. verify that terminal output does not expose private data.
 
 ## Reporting a vulnerability
 
-Open a security-related issue in this repository with a minimal technical description and reproduction. For a vulnerability that should not be disclosed publicly, contact the repository owner through an appropriate private channel before publishing details.
+Use GitHub private vulnerability reporting when it is available for this repository. Otherwise contact the repository owner through a private GitHub channel before public disclosure.
+
+Include:
+
+- the affected version and commit SHA;
+- operating system and Node.js version;
+- a minimal reproduction;
+- expected and actual security impact;
+- whether the issue requires a malicious client, repository, command, or local user.
+
+Do not open a public issue containing an unpatched exploit, secret, or private user data.
 
 ## License and responsibility
 
-This project is provided under the MIT License without warranty. Users are responsible for choosing an appropriate execution account, access scope, and isolation model for their environment.
+This project is provided under the MIT License without warranty. Users are responsible for selecting an appropriate execution account, access scope, MCP client, bridge, network policy, and isolation model.
