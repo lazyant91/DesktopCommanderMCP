@@ -19,11 +19,15 @@ assert.deepEqual(Object.keys(packageJson.devDependencies).sort(), [
 ]);
 
 assert.equal('optionalDependencies' in packageJson, false);
-await assert.rejects(
-  fs.access(new URL('../package-lock.json', import.meta.url)),
-  undefined,
-  'stale package-lock.json remains',
+
+const packageLock = JSON.parse(
+  await fs.readFile(new URL('../package-lock.json', import.meta.url), 'utf8'),
 );
+assert.equal(packageLock.name, packageJson.name);
+assert.equal(packageLock.version, packageJson.version);
+assert.equal(packageLock.lockfileVersion, 3);
+assert.deepEqual(packageLock.packages[''].dependencies, packageJson.dependencies);
+assert.deepEqual(packageLock.packages[''].devDependencies, packageJson.devDependencies);
 
 for (const removedDependency of [
   '@opendocsg/pdf2md',
