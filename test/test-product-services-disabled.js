@@ -13,6 +13,7 @@ for (const removedPath of [
   '../src/utils/trackTools.ts',
   '../src/utils/toolHistory.ts',
   '../src/handlers/history-handlers.ts',
+  '../test/test-conditional-tools.js',
 ]) {
   await assert.rejects(
     fs.access(new URL(removedPath, import.meta.url)),

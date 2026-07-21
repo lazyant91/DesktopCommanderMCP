@@ -1,6 +1,5 @@
 import { ChildProcess } from 'child_process';
 import { FilteredStdioServerTransport } from './custom-stdio.js';
-import type { PreviewFileType } from './ui/file-preview/shared/preview-file-types.js';
 
 declare global {
   var mcpTransport: FilteredStdioServerTransport | undefined;
@@ -75,22 +74,9 @@ export interface ServerResponseContent {
   mimeType?: string;
 }
 
-export interface FilePreviewStructuredContent {
-  fileName: string;
-  filePath: string;
-  fileType: PreviewFileType;
-  sourceTool?: 'read_file' | 'write_file' | 'edit_block';
-  defaultEditorName?: string;
-  defaultEditorPath?: string;
-  // For text/markdown this is the file text; for images it is the base64 image
-  // payload (single source — the preview UI renders the <img> from this).
-  content?: string;
-  mimeType?: string;
-}
-
 export interface ServerResult {
   content: ServerResponseContent[];
-  structuredContent?: FilePreviewStructuredContent | Record<string, unknown>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
   _meta?: Record<string, unknown>;
 }

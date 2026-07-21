@@ -7,39 +7,82 @@
 
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const localConfigDir = path.join(os.homedir(), '.local-mcp-server');
+const localConfigPath = path.join(localConfigDir, 'config.json');
 
-function runTestFile(testFile) {
-  return new Promise((resolve) => {
-    console.log(`\nRunning integration test: ${testFile}`);
-    const startedAt = Date.now();
-    const proc = spawn('node', [testFile], {
-      cwd: __dirname,
-      stdio: 'inherit',
-      shell: false,
-    });
+async function snapshotLocalConfig() {
+  let directoryExisted = true;
+  try {
+    await fs.access(localConfigDir);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    directoryExisted = false;
+  }
 
-    proc.on('close', (code) => {
-      const duration = Date.now() - startedAt;
-      if (code === 0) {
-        console.log(`PASS ${testFile} (${duration}ms)`);
-        resolve({ file: testFile, success: true, duration });
-      } else {
-        console.error(`FAIL ${testFile} (${duration}ms, exit code ${code})`);
-        resolve({ file: testFile, success: false, duration, exitCode: code });
-      }
-    });
+  try {
+    return {
+      directoryExisted,
+      contents: await fs.readFile(localConfigPath),
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    return { directoryExisted, contents: null };
+  }
+}
 
-    proc.on('error', (error) => {
-      const duration = Date.now() - startedAt;
-      console.error(`FAIL ${testFile} (${duration}ms): ${error.message}`);
-      resolve({ file: testFile, success: false, duration, error: error.message });
+async function restoreLocalConfig(snapshot) {
+  if (snapshot.contents !== null) {
+    await fs.mkdir(localConfigDir, { recursive: true });
+    await fs.writeFile(localConfigPath, snapshot.contents);
+    return;
+  }
+
+  await fs.rm(localConfigPath, { force: true });
+  if (!snapshot.directoryExisted) {
+    await fs.rmdir(localConfigDir).catch((error) => {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTEMPTY') throw error;
     });
-  });
+  }
+}
+
+async function runTestFile(testFile) {
+  const configSnapshot = await snapshotLocalConfig();
+  try {
+    return await new Promise((resolve) => {
+      console.log(`\nRunning integration test: ${testFile}`);
+      const startedAt = Date.now();
+      const proc = spawn('node', [testFile], {
+        cwd: __dirname,
+        stdio: 'inherit',
+        shell: false,
+      });
+
+      proc.on('close', (code) => {
+        const duration = Date.now() - startedAt;
+        if (code === 0) {
+          console.log(`PASS ${testFile} (${duration}ms)`);
+          resolve({ file: testFile, success: true, duration });
+        } else {
+          console.error(`FAIL ${testFile} (${duration}ms, exit code ${code})`);
+          resolve({ file: testFile, success: false, duration, exitCode: code });
+        }
+      });
+
+      proc.on('error', (error) => {
+        const duration = Date.now() - startedAt;
+        console.error(`FAIL ${testFile} (${duration}ms): ${error.message}`);
+        resolve({ file: testFile, success: false, duration, error: error.message });
+      });
+    });
+  } finally {
+    await restoreLocalConfig(configSnapshot);
+  }
 }
 
 function formatDuration(duration) {

@@ -15,7 +15,7 @@ const packageJson = JSON.parse(
 const indexSource = await fs.readFile(new URL('../src/index.ts', import.meta.url), 'utf8');
 
 assert.deepEqual(packageJson.bin, {
-  'desktop-commander': 'dist/index.js',
+  'local-mcp-server': 'dist/index.js',
 });
 
 for (const removedScript of [
@@ -47,7 +47,7 @@ for (const removedScript of [
   assert.equal(removedScript in packageJson.scripts, false, `unexpected script: ${removedScript}`);
 }
 
-assert.equal(packageJson.scripts.build, 'tsc');
+assert.equal(packageJson.scripts.build, 'npm run clean && tsc');
 assert.equal(indexSource.includes('runSetup'), false);
 assert.equal(indexSource.includes('runUninstall'), false);
 assert.equal(indexSource.includes("process.argv[2] === 'setup'"), false);

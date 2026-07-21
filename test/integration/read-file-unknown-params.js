@@ -5,11 +5,10 @@
  * Drives the real MCP server over stdio (exactly like an LLM client), so every
  * assertion is against the actual CallToolResult the model receives.
  *
- * Documents and validates behavior:
- *   1. Unsupported params (e.g. view_range, foo_bar) are stripped, the read still
- *      succeeds (isError falsy), and a corrective warning is PREPENDED as the
- *      first content block, naming the ignored params and listing the supported
- *      ones. This is the unsupported-parameter warning feature.
+ * Documents and validates the minimal dispatcher behavior:
+ *   1. Unsupported params (e.g. view_range, foo_bar) are stripped by the Zod
+ *      object schema and the read still succeeds without product-specific
+ *      advisory content.
  *   2. Wrong type on a known param -> dispatcher-shaped isError: true.
  *   3. Missing required param (path) -> dispatcher-shaped isError: true.
  */
@@ -39,14 +38,13 @@ function textOf(result) {
 async function createMcpClient() {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [path.join(PROJECT_ROOT, 'dist/index.js'), '--no-onboarding'],
+    args: [path.join(PROJECT_ROOT, 'dist/index.js')],
     cwd: PROJECT_ROOT,
     stderr: 'pipe',
-    env: { ...process.env, DESKTOP_COMMANDER_DISABLE_TELEMETRY: 'true' },
   });
 
   const client = new Client(
-    { name: 'desktop-commander-unknown-params-test', version: '1.0.0' },
+    { name: 'local-mcp-unknown-params-test', version: '1.0.0' },
     { capabilities: {} }
   );
   await client.connect(transport, { timeout: 30000 });
@@ -60,11 +58,11 @@ async function setup(client) {
   await fs.writeFile(TEST_FILE, lines.join('\n'));
 
   const original = await callTool(client, 'get_config', {});
-  const entries = original.structuredContent?.entries;
-  assert.ok(Array.isArray(entries), 'get_config should return structured entries');
-  const originalConfig = Object.fromEntries(
-    entries.filter((e) => e && e.editable === true).map((e) => [e.key, e.value])
-  );
+  const configText = textOf(original);
+  const jsonStart = configText.indexOf('{');
+  assert.ok(jsonStart >= 0, 'get_config should return JSON in its text response');
+  const originalConfig = JSON.parse(configText.slice(jsonStart)).config;
+  assert.ok(originalConfig && typeof originalConfig === 'object', 'get_config should include config');
 
   const set = await callTool(client, 'set_config_value', {
     key: 'allowedDirectories', value: [TEST_DIR], origin: 'llm',
@@ -95,31 +93,21 @@ async function main() {
     assert.ok(/line-1\b/.test(cleanFirst), 'Case 0: valid call returns file content first');
     console.log('[Case 0] PASS - clean call has no warning');
 
-    // --- Case 1: unsupported parameters are stripped, with a corrective warning ---
+    // --- Case 1: unsupported parameters are stripped without advisory content ---
     const unknown = await callTool(client, 'read_file', {
       path: TEST_FILE,
       view_range: [5, 10],   // not a supported param
       foo_bar: true,         // clearly bogus
     });
     const blocks = (unknown.content || []).filter((c) => c.type === 'text').map((c) => c.text);
-    const firstBlock = blocks[0] || '';
     const joined = blocks.join('\n');
     console.log('\n[Case 1] unsupported params -> isError:', !!unknown.isError);
 
-    // 1a. The call is NOT rejected; unsupported params don't fail the read.
     assert.ok(!unknown.isError, 'Case 1: unsupported params should NOT cause isError');
-    // 1b. A corrective warning is PREPENDED as the first content block.
-    assert.ok(/not supported|ignored/i.test(firstBlock),
-      'Case 1: first content block should be the unsupported-params warning');
-    // 1c. The warning names exactly the params that were ignored.
-    assert.ok(/view_range/.test(firstBlock) && /foo_bar/.test(firstBlock),
-      'Case 1: warning should name the ignored params (view_range, foo_bar)');
-    // 1d. The warning lists the supported params (the corrective part).
-    assert.ok(/path/.test(firstBlock) && /offset/.test(firstBlock) && /length/.test(firstBlock),
-      'Case 1: warning should list the supported params');
-    // 1e. The read still happened (from the start, since the params were ignored).
+    assert.ok(!/not supported|ignored|view_range|foo_bar/i.test(joined),
+      'Case 1: minimal dispatcher should not inject product-specific advisory content');
     assert.ok(/line-1\b/.test(joined), 'Case 1: file content still returned (read from start)');
-    console.log('[Case 1] PASS - ignored params named + supported list returned, read still served');
+    console.log('[Case 1] PASS - unknown params stripped and read served without advisory content');
 
     // --- Case 2: wrong type on a known param -> shaped isError ---
     const badType = await callTool(client, 'read_file', { path: TEST_FILE, offset: 'not-a-number' });

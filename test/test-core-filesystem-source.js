@@ -20,6 +20,17 @@ for (const removedTerm of [
   assert.equal(source.includes(removedTerm), false, `unexpected filesystem term: ${removedTerm}`);
 }
 
+assert.equal(
+  source.includes('Promise<Record<string, unknown>>'),
+  false,
+  'getFileInfo must expose a typed metadata contract to callers',
+);
+assert.equal(
+  source.includes('export interface LocalFileInfo'),
+  true,
+  'getFileInfo must export its typed metadata contract',
+);
+
 for (const retainedExport of [
   'validatePath',
   'readFile',

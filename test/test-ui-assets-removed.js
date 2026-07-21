@@ -15,6 +15,19 @@ const packageJson = JSON.parse(
 
 assert.equal(packageJson.scripts.build.includes('build-ui-runtime'), false);
 
+const sharedTypesSource = await fs.readFile(new URL('../src/types.ts', import.meta.url), 'utf8');
+for (const removedTerm of [
+  'PreviewFileType',
+  'FilePreviewStructuredContent',
+  'ui/file-preview',
+]) {
+  assert.equal(
+    sharedTypesSource.includes(removedTerm),
+    false,
+    `stale UI type remains in src/types.ts: ${removedTerm}`,
+  );
+}
+
 for (const removedPath of [
   'src/ui',
   'scripts/build-ui-runtime.cjs',
