@@ -1,4 +1,5 @@
 import { terminalManager, MAX_BUFFERED_OUTPUT_CHARS } from '../terminal-manager.js';
+import { evaluateAiAgentInvocation } from '../ai-agent-policy.js';
 import { commandManager } from '../command-manager.js';
 import {
   StartProcessArgsSchema,
@@ -16,6 +17,21 @@ import {
 } from '../utils/process-detection.js';
 import * as os from 'os';
 import { configManager } from '../config-manager.js';
+
+function immutablePolicyError(input: string): ServerResult | null {
+  const decision = evaluateAiAgentInvocation(input);
+  if (decision.allowed) return null;
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Error: Local AI agent CLI execution is disabled by immutable policy (${decision.agent}).`,
+      },
+    ],
+    isError: true,
+  };
+}
 
 /**
  * Start an owned local terminal process.
@@ -35,6 +51,9 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
       isError: true,
     };
   }
+
+  const policyError = immutablePolicyError(parsed.data.command);
+  if (policyError) return policyError;
 
   try {
     const commands = commandManager.extractCommands(parsed.data.command).join(', ');
@@ -298,6 +317,9 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
     wait_for_prompt = true,
     verbose_timing = false,
   } = parsed.data;
+
+  const policyError = immutablePolicyError(input);
+  if (policyError) return policyError;
 
   const config = await configManager.getConfig();
   const maxOutputLines = config.fileReadLineLimit ?? 1000;
