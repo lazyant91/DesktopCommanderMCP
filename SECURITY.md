@@ -21,13 +21,16 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Control | Purpose | Security boundary? |
 | --- | --- | --- |
 | `allowedDirectories` | Reduce accidental access by structured file tools | No |
-| Command blocklist | Reject explicitly listed command names | No |
+| Configurable command blocklist | Reject explicitly listed command names | No |
+| Immutable AI agent CLI policy | Reject common direct and wrapped launches of selected local AI agents | Defense in depth, not a sandbox |
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
 | Exact edit matching | Prevent ambiguous text replacements | No |
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
-Terminal execution is intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. File roots and command filtering must not be described as a sandbox.
+The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. The policy covers the approved agent executable names, official package aliases, common package launchers, shell wrappers, script runtimes, command chains, and interactive process input. It is intended to prevent accidental use of local model quotas and unauthorized subagent workflows.
+
+Terminal execution remains intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. The immutable policy, file roots, and configurable command filtering are not an operating-system sandbox.
 
 ## Recommended operation
 
@@ -43,7 +46,9 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 ## Known limitations
 
 - `allowedDirectories` does not constrain arbitrary terminal commands.
-- Command-name filtering can be bypassed through scripts, aliases, alternate interpreters, absolute paths, or shell composition.
+- The immutable AI agent policy recognizes approved names and common wrappers, not program identity. Renamed binaries, arbitrary custom wrappers, or agent code hidden inside unrelated scripts can evade name-based inspection.
+- Commands executed outside Local MCP and processes started outside server-owned sessions are not affected.
+- The configurable command blocklist remains a guardrail and can be bypassed by unrecognized scripts, aliases, or interpreters.
 - A trusted client can request destructive operations.
 - Tool descriptions and annotations do not enforce user intent.
 - The server does not protect against compromise of the connected client, model account, operating system, or launched command.

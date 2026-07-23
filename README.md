@@ -177,6 +177,14 @@ Example:
 
 Use `get_config` and `set_config_value` while the server is running. Configuration is isolated from the upstream project's configuration directory.
 
+### Immutable AI agent CLI policy
+
+Local MCP applies an immutable AI agent CLI policy before starting a process and before sending input to an owned interactive process. It blocks direct and commonly wrapped launches of the `codex`, `opencode`, `claude`, `gemini`, `aider`, and `cursor-agent` commands, including their usual executable suffixes and official package-launch forms such as `npx @openai/codex`, `npm exec @anthropic-ai/claude-code`, `pnpm dlx opencode-ai`, and `yarn dlx @google/gemini-cli`.
+
+blockedCommands cannot disable this policy. Clearing or replacing the configurable command list does not permit these AI agent CLIs. The policy also inspects common shell wrappers, package launchers, script runtimes, command chains, and `interact_with_process` input. Ordinary Git, npm, Node.js, TypeScript, build, and test commands remain available when they do not launch a blocked agent.
+
+This policy is a cost and workflow guardrail, not an operating-system sandbox. Renamed binaries, arbitrary custom wrappers, agent code hidden inside unrelated scripts, commands run outside Local MCP, and processes started outside this server's owned sessions are outside the guarantee. Use operating-system accounts, credential separation, network controls, or a virtual machine when stronger enforcement is required.
+
 ## Runtime behavior
 
 ### Terminal sessions

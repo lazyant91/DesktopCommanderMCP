@@ -4,6 +4,13 @@ All notable changes to this fork are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Immutable Local MCP execution policy that blocks common local AI agent CLIs across direct process starts, package launchers, shell wrappers, script runtimes, command chains, and interactive process input.
+- Policy enforcement that remains active even when `blockedCommands` is cleared or replaced.
+
 ## [1.0.0] - 2026-07-21
 
 First stable release of the standalone Local MCP Server fork.
