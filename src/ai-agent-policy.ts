@@ -1,4 +1,8 @@
-import type { InteractiveInputPolicyMode } from './types.js';
+import type {
+  AiAgentInteractiveAliasKind,
+  AiAgentInteractivePolicyState,
+  InteractiveInputPolicyMode,
+} from './types.js';
 
 export type AiAgentPolicyDecision =
   | { allowed: true }
@@ -505,7 +509,10 @@ function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecisio
         const moduleName = module.value.split('.')[0].replace(/_/g, '-');
         return inspectRuntimeTargetToken(moduleName, 'blocked AI agent Python module');
       }
-      if (tokens[index] === '-c' || tokens[index].startsWith('-c=')) return ALLOWED;
+      const inlineCode = readOptionValue(tokens, index, new Set(['-c']));
+      if (inlineCode) {
+        return evaluateAiAgentInteractiveInput(inlineCode.value, 'python-repl');
+      }
     }
 
     const scriptIndex = findDelegatedCommandIndex(
@@ -519,12 +526,15 @@ function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecisio
   }
 
   if (runtime === 'node' || runtime === 'nodejs') {
-    if (
-      tokens.slice(1).some((token) =>
-        ['-e', '--eval', '-p', '--print'].includes(token.split('=')[0]),
-      )
-    ) {
-      return ALLOWED;
+    for (let index = 1; index < tokens.length; index += 1) {
+      const inlineCode = readOptionValue(
+        tokens,
+        index,
+        new Set(['-e', '--eval', '-p', '--print']),
+      );
+      if (inlineCode) {
+        return evaluateAiAgentInteractiveInput(inlineCode.value, 'node-repl');
+      }
     }
     const scriptIndex = findDelegatedCommandIndex(
       tokens,
@@ -547,12 +557,22 @@ function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecisio
   }
 
   if (runtime === 'bun') {
+    for (let optionIndex = 1; optionIndex < tokens.length; optionIndex += 1) {
+      const inlineCode = readOptionValue(
+        tokens,
+        optionIndex,
+        new Set(['-e', '--eval', '-p', '--print']),
+      );
+      if (inlineCode) {
+        return evaluateAiAgentInteractiveInput(inlineCode.value, 'bun-repl');
+      }
+    }
+
     let index = findDelegatedCommandIndex(
       tokens,
       1,
       new Set([
         '--cwd', '--config', '--env-file', '--preload', '-r', '--conditions',
-        '--smol', '--inspect', '--inspect-brk', '--inspect-wait',
       ]),
     );
     if (index < 0) return ALLOWED;
@@ -574,18 +594,29 @@ function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecisio
       1,
       new Set([
         '--config', '--import-map', '--cert', '--location', '--seed', '--v8-flags',
-        '--lock', '--node-modules-dir', '--vendor',
+        '--lock', '--vendor',
       ]),
     );
-    if (subcommandIndex < 0 || tokens[subcommandIndex]?.toLowerCase() !== 'run') {
-      return ALLOWED;
+    if (subcommandIndex < 0) return ALLOWED;
+    const subcommand = tokens[subcommandIndex]?.toLowerCase();
+    if (subcommand === 'eval') {
+      const codeIndex = findDelegatedCommandIndex(
+        tokens,
+        subcommandIndex + 1,
+        new Set(['--ext', '--config', '--import-map', '--location', '--seed', '--v8-flags']),
+      );
+      return codeIndex >= 0 && codeIndex < tokens.length
+        ? evaluateAiAgentInteractiveInput(tokens[codeIndex], 'deno-repl')
+        : ALLOWED;
     }
+    if (subcommand !== 'run') return ALLOWED;
+
     const scriptIndex = findDelegatedCommandIndex(
       tokens,
       subcommandIndex + 1,
       new Set([
         '--config', '--import-map', '--cert', '--location', '--seed', '--v8-flags',
-        '--lock', '--node-modules-dir', '--watch', '--watch-exclude',
+        '--lock', '--watch-exclude',
       ]),
     );
     return scriptIndex >= 0 && scriptIndex < tokens.length
@@ -666,6 +697,7 @@ function findPackageManagerSubcommandIndex(tokens: string[], manager: string): n
       new Set([
         '--prefix', '--workspace', '-w', '--userconfig', '--registry', '--cache',
         '--loglevel', '--script-shell', '--scope', '--otp', '--provenance-file',
+        '--location',
       ]),
     );
   }
@@ -901,6 +933,11 @@ function findInlineIfCommandIndex(tokens: string[]): number {
     index += 2;
   } else if (condition.includes('==')) {
     index += 1;
+  } else if (
+    index + 3 < tokens.length &&
+    ['equ', 'neq', 'lss', 'leq', 'gtr', 'geq'].includes(tokens[index + 1]?.toLowerCase())
+  ) {
+    index += 3;
   } else {
     return -1;
   }
@@ -915,6 +952,11 @@ function inspectSegment(
   let tokens = tokenize(segment);
   while (tokens.length > 0 && ENV_ASSIGNMENT.test(tokens[0])) tokens = tokens.slice(1);
   while (['&', '.', '{', '('].includes(tokens[0])) tokens = tokens.slice(1);
+  if (tokens.length === 0) return ALLOWED;
+  if (dialect === 'cmd' && tokens[0].startsWith('@')) {
+    tokens[0] = tokens[0].replace(/^@+/, '');
+    if (!tokens[0]) tokens = tokens.slice(1);
+  }
   if (tokens.length === 0) return ALLOWED;
 
   const directAgent = agentFromExecutable(tokens[0]);
@@ -1124,6 +1166,60 @@ function inspectSegment(
   return ALLOWED;
 }
 
+function maskShellQuotedText(input: string): string {
+  let quote: '"' | "'" | null = null;
+  let masked = '';
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (quote) {
+      masked += /[\r\n]/.test(char) ? char : ' ';
+      if (char === quote && input[index - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      masked += ' ';
+      continue;
+    }
+    masked += char;
+  }
+  return masked;
+}
+
+function extractPosixCaseBodies(input: string): string[] {
+  const bodies: string[] = [];
+  const masked = maskShellQuotedText(input);
+  const headerPattern = /\bcase\b[\s\S]*?\bin\b/gi;
+  let header: RegExpExecArray | null;
+
+  while ((header = headerPattern.exec(masked))) {
+    const branchStart = headerPattern.lastIndex;
+    const esacPattern = /\besac\b/gi;
+    esacPattern.lastIndex = branchStart;
+    const esac = esacPattern.exec(masked);
+    if (!esac) break;
+
+    const maskedBranches = masked.slice(branchStart, esac.index);
+    const originalBranches = input.slice(branchStart, esac.index);
+    let cursor = 0;
+    while (cursor < maskedBranches.length) {
+      const closeParen = maskedBranches.indexOf(')', cursor);
+      if (closeParen < 0) break;
+      const terminator = maskedBranches.indexOf(';;', closeParen + 1);
+      const body = originalBranches
+        .slice(closeParen + 1, terminator >= 0 ? terminator : maskedBranches.length)
+        .trim();
+      if (body) bodies.push(body);
+      if (terminator < 0) break;
+      cursor = terminator + 2;
+    }
+    headerPattern.lastIndex = esac.index + esac[0].length;
+  }
+
+  return bodies;
+}
+
 function evaluateInternal(
   input: string,
   depth: number,
@@ -1147,6 +1243,13 @@ function evaluateInternal(
     if (!decision.allowed) return decision;
   }
 
+  if (dialect === 'posix') {
+    for (const body of extractPosixCaseBodies(input)) {
+      const decision = evaluateInternal(body, depth + 1, dialect);
+      if (!decision.allowed) return decision;
+    }
+  }
+
   for (const segment of splitShellSegments(input)) {
     const decision = inspectSegment(segment, depth, dialect);
     if (!decision.allowed) return decision;
@@ -1155,261 +1258,1137 @@ function evaluateInternal(
   return ALLOWED;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+type InteractiveCodeToken = {
+  type: 'identifier' | 'string' | 'punctuation';
+  value: string;
+};
+
+export interface AiAgentInteractiveEvaluation {
+  decision: AiAgentPolicyDecision;
+  nextState: AiAgentInteractivePolicyState;
 }
 
-function decodeCodeStringLiteral(value: string): string {
-  return value.replace(/\\(['"\\])/g, '$1');
+const MAX_INTERACTIVE_POLICY_ALIASES = 64;
+const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+const NODE_METHOD_KINDS: Record<string, AiAgentInteractiveAliasKind> = {
+  spawn: 'node-spawn',
+  spawnsync: 'node-spawn-sync',
+  execfile: 'node-exec-file',
+  execfilesync: 'node-exec-file-sync',
+  fork: 'node-fork',
+  exec: 'node-exec',
+  execsync: 'node-exec-sync',
+};
+
+const PYTHON_SUBPROCESS_METHOD_KINDS: Record<string, AiAgentInteractiveAliasKind> = {
+  run: 'python-run',
+  popen: 'python-popen',
+  call: 'python-call',
+  check_call: 'python-check-call',
+  check_output: 'python-check-output',
+};
+
+const PYTHON_OS_METHOD_KINDS: Record<string, AiAgentInteractiveAliasKind> = {
+  system: 'python-system',
+  popen: 'python-os-popen',
+};
+
+export function createAiAgentInteractivePolicyState(): AiAgentInteractivePolicyState {
+  return { aliases: {} };
 }
 
-function standaloneQuotedLiteral(input: string): boolean {
-  const trimmed = input.trim();
-  return /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')$/.test(trimmed);
+function cloneInteractiveState(
+  state?: AiAgentInteractivePolicyState,
+): AiAgentInteractivePolicyState {
+  return { aliases: { ...(state?.aliases ?? {}) } };
 }
 
-const CODE_STRING_LITERAL = String.raw`(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')`;
+function decodeCodeEscape(char: string): string {
+  if (char === 'n') return '\n';
+  if (char === 'r') return '\r';
+  if (char === 't') return '\t';
+  return char;
+}
 
-function inspectExecutionCalls(
+function lexInteractiveCode(
   input: string,
-  receiverPattern: string,
-  methodPattern: string,
-  commandStringMethods: ReadonlySet<string>,
-  reason: string,
-): AiAgentPolicyDecision {
-  const pattern = new RegExp(
-    String.raw`${receiverPattern}\s*\.\s*(${methodPattern})\s*\(\s*(?:\[\s*|(?:args|cmd|command|executable)\s*=\s*\[?\s*|\{[\s\S]{0,256}?\b(?:cmd|command)\s*:\s*\[?\s*)?${CODE_STRING_LITERAL}`,
-    'gsi',
-  );
+  mode: InteractiveInputPolicyMode,
+): InteractiveCodeToken[] {
+  const tokens: InteractiveCodeToken[] = [];
+  const python = mode === 'python-repl';
+  let index = 0;
 
-  for (const match of input.matchAll(pattern)) {
-    const method = match[1].toLowerCase();
-    const target = decodeCodeStringLiteral(match[2] ?? match[3] ?? '');
-    if (!target) continue;
-    const decision = commandStringMethods.has(method)
-      ? evaluateInternal(target, 1)
-      : inspectRuntimeTargetToken(target, reason);
-    if (!decision.allowed) return decision;
+  const readEmbeddedExpression = (
+    openBraceIndex: number,
+  ): { source: string; endIndex: number } | null => {
+    let cursor = openBraceIndex + 1;
+    let depth = 1;
+    let nestedQuote: string | null = null;
+
+    while (cursor < input.length) {
+      const char = input[cursor];
+      if (nestedQuote) {
+        if (char === '\\') {
+          cursor += 2;
+          continue;
+        }
+        if (char === nestedQuote) nestedQuote = null;
+        cursor += 1;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === '`') {
+        nestedQuote = char;
+        cursor += 1;
+        continue;
+      }
+      if (char === '{') depth += 1;
+      if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return {
+            source: input.slice(openBraceIndex + 1, cursor),
+            endIndex: cursor,
+          };
+        }
+      }
+      cursor += 1;
+    }
+    return null;
+  };
+
+  const readString = (
+    quote: string,
+    triple: boolean,
+    interpolate: boolean,
+  ): void => {
+    const terminator = triple ? quote.repeat(3) : quote;
+    index += terminator.length;
+    let value = '';
+    let hadInterpolation = false;
+
+    while (index < input.length) {
+      if (input.startsWith(terminator, index)) {
+        index += terminator.length;
+        if (!hadInterpolation) tokens.push({ type: 'string', value });
+        return;
+      }
+      const char = input[index];
+      const jsInterpolation = quote === '`' && char === '$' && input[index + 1] === '{';
+      const pythonInterpolation =
+        python && interpolate && char === '{' && input[index + 1] !== '{';
+      if (jsInterpolation || pythonInterpolation) {
+        const openBraceIndex = jsInterpolation ? index + 1 : index;
+        const embedded = readEmbeddedExpression(openBraceIndex);
+        if (embedded) {
+          tokens.push(...lexInteractiveCode(embedded.source, mode));
+          hadInterpolation = true;
+          index = embedded.endIndex + 1;
+          continue;
+        }
+      }
+      if (python && interpolate && char === '{' && input[index + 1] === '{') {
+        value += '{';
+        index += 2;
+        continue;
+      }
+      if (python && interpolate && char === '}' && input[index + 1] === '}') {
+        value += '}';
+        index += 2;
+        continue;
+      }
+      if (char === '\\' && index + 1 < input.length) {
+        value += decodeCodeEscape(input[index + 1]);
+        index += 2;
+        continue;
+      }
+      value += char;
+      index += 1;
+    }
+
+    tokens.push({ type: 'string', value: '<unterminated-string>' });
+  };
+
+  const canStartRegexLiteral = (): boolean => {
+    const previous = tokens[tokens.length - 1];
+    if (!previous) return true;
+    if (
+      previous.type === 'punctuation' &&
+      ['=', '(', '[', '{', ',', ':', ';', '!', '?', '>', '&', '|', '+', '-', '*', '%', '~', '^'].includes(previous.value)
+    ) {
+      return true;
+    }
+    return previous.type === 'identifier' &&
+      ['return', 'throw', 'case', 'delete', 'void', 'typeof', 'instanceof', 'in', 'of', 'yield', 'await'].includes(
+        previous.value,
+      );
+  };
+
+  const readRegexLiteral = (): void => {
+    index += 1;
+    let inCharacterClass = false;
+    while (index < input.length) {
+      const char = input[index];
+      if (char === '\\') {
+        index += 2;
+        continue;
+      }
+      if (char === '[') inCharacterClass = true;
+      if (char === ']') inCharacterClass = false;
+      if (char === '/' && !inCharacterClass) {
+        index += 1;
+        while (index < input.length && /[A-Za-z]/.test(input[index])) index += 1;
+        tokens.push({ type: 'string', value: '<regex-literal>' });
+        return;
+      }
+      if (char === '\n' || char === '\r') break;
+      index += 1;
+    }
+    tokens.push({ type: 'punctuation', value: '/' });
+  };
+
+  while (index < input.length) {
+    const char = input[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+
+    if (python && char === '#') {
+      while (index < input.length && input[index] !== '\n') index += 1;
+      continue;
+    }
+    if (!python && input.startsWith('//', index)) {
+      while (index < input.length && input[index] !== '\n') index += 1;
+      continue;
+    }
+    if (!python && input.startsWith('/*', index)) {
+      const end = input.indexOf('*/', index + 2);
+      index = end >= 0 ? end + 2 : input.length;
+      continue;
+    }
+    if (!python && char === '/' && canStartRegexLiteral()) {
+      readRegexLiteral();
+      continue;
+    }
+
+    if (char === '"' || char === "'" || (!python && char === '`')) {
+      const triple = python && input.startsWith(char.repeat(3), index);
+      readString(char, triple, !python && char === '`');
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(char)) {
+      const start = index;
+      index += 1;
+      while (index < input.length && /[A-Za-z0-9_$]/.test(input[index])) index += 1;
+      const identifier = input.slice(start, index);
+      if (
+        python &&
+        /^[rubf]+$/i.test(identifier) &&
+        (input[index] === '"' || input[index] === "'")
+      ) {
+        const quote = input[index];
+        const triple = input.startsWith(quote.repeat(3), index);
+        readString(quote, triple, identifier.toLowerCase().includes('f'));
+      } else {
+        tokens.push({ type: 'identifier', value: identifier });
+      }
+      continue;
+    }
+
+    tokens.push({ type: 'punctuation', value: char });
+    index += 1;
   }
-  return ALLOWED;
+
+  return normalizeStaticMemberAccess(tokens);
 }
 
-function collectAliases(input: string, patterns: RegExp[]): string[] {
-  const aliases = new Set<string>();
-  for (const pattern of patterns) {
-    for (const match of input.matchAll(pattern)) {
-      if (match[1]) aliases.add(match[1]);
+function normalizeStaticMemberAccess(
+  tokens: InteractiveCodeToken[],
+): InteractiveCodeToken[] {
+  const normalized: InteractiveCodeToken[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const previous = normalized[normalized.length - 1];
+    const property = tokens[index + 1];
+    const close = tokens[index + 2];
+    const memberReceiver =
+      previous?.type === 'identifier' ||
+      (previous?.type === 'punctuation' && [')', ']'].includes(previous.value));
+
+    if (
+      memberReceiver &&
+      isToken(token, 'punctuation', '[') &&
+      property?.type === 'string' &&
+      IDENTIFIER_PATTERN.test(property.value) &&
+      isToken(close, 'punctuation', ']')
+    ) {
+      normalized.push(
+        { type: 'punctuation', value: '.' },
+        { type: 'identifier', value: property.value },
+      );
+      index += 2;
+      continue;
+    }
+    normalized.push(token);
+  }
+
+  return normalized;
+}
+
+function isToken(
+  token: InteractiveCodeToken | undefined,
+  type: InteractiveCodeToken['type'],
+  value?: string,
+): boolean {
+  return Boolean(token && token.type === type && (value === undefined || token.value === value));
+}
+
+function findMatchingCodeToken(
+  tokens: InteractiveCodeToken[],
+  start: number,
+  open: string,
+  close: string,
+): number {
+  let depth = 0;
+  for (let index = start; index < tokens.length; index += 1) {
+    if (isToken(tokens[index], 'punctuation', open)) depth += 1;
+    if (isToken(tokens[index], 'punctuation', close)) {
+      depth -= 1;
+      if (depth === 0) return index;
     }
   }
-  return [...aliases];
+  return -1;
 }
 
-interface StandaloneExecutionAlias {
-  alias: string;
-  method: string;
-}
+function splitCodeArguments(
+  tokens: InteractiveCodeToken[],
+  openParenIndex: number,
+): { args: InteractiveCodeToken[][]; closeParenIndex: number } | null {
+  const closeParenIndex = findMatchingCodeToken(tokens, openParenIndex, '(', ')');
+  if (closeParenIndex < 0) return null;
 
-function inspectStandaloneExecutionCalls(
-  input: string,
-  aliases: StandaloneExecutionAlias[],
-  commandStringMethods: ReadonlySet<string>,
-  reason: string,
-): AiAgentPolicyDecision {
-  for (const { alias, method } of aliases) {
-    const pattern = new RegExp(
-      String.raw`\b${escapeRegExp(alias)}\s*\(\s*(?:\[\s*|(?:args|cmd|command|executable)\s*=\s*\[?\s*)?${CODE_STRING_LITERAL}`,
-      'gsi',
-    );
-    for (const match of input.matchAll(pattern)) {
-      const target = decodeCodeStringLiteral(match[1] ?? match[2] ?? '');
-      if (!target) continue;
-      const decision = commandStringMethods.has(method.toLowerCase())
-        ? evaluateInternal(target, 1)
-        : inspectRuntimeTargetToken(target, reason);
-      if (!decision.allowed) return decision;
+  const args: InteractiveCodeToken[][] = [];
+  let current: InteractiveCodeToken[] = [];
+  let parens = 0;
+  let brackets = 0;
+  let braces = 0;
+
+  for (let index = openParenIndex + 1; index < closeParenIndex; index += 1) {
+    const token = tokens[index];
+    if (isToken(token, 'punctuation', '(')) parens += 1;
+    if (isToken(token, 'punctuation', ')')) parens -= 1;
+    if (isToken(token, 'punctuation', '[')) brackets += 1;
+    if (isToken(token, 'punctuation', ']')) brackets -= 1;
+    if (isToken(token, 'punctuation', '{')) braces += 1;
+    if (isToken(token, 'punctuation', '}')) braces -= 1;
+
+    if (
+      isToken(token, 'punctuation', ',') &&
+      parens === 0 &&
+      brackets === 0 &&
+      braces === 0
+    ) {
+      args.push(current);
+      current = [];
+      continue;
     }
+    current.push(token);
   }
-  return ALLOWED;
+  if (current.length > 0) args.push(current);
+  return { args, closeParenIndex };
 }
 
-function collectNodeNamedExecutionAliases(input: string): StandaloneExecutionAlias[] {
-  const aliases: StandaloneExecutionAlias[] = [];
-  const methods = new Set([
-    'spawn', 'spawnSync', 'execFile', 'execFileSync', 'fork', 'exec', 'execSync',
-  ]);
-  const patterns = [
-    /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*['"](?:node:)?child_process['"]\s*\)/g,
-    /\bimport\s*\{([^}]*)\}\s*from\s*['"](?:node:)?child_process['"]/g,
+function staticCodeString(tokens: InteractiveCodeToken[]): string | null {
+  return tokens.length === 1 && tokens[0].type === 'string' && !tokens[0].value.startsWith('<')
+    ? tokens[0].value
+    : null;
+}
+
+function staticCodeArray(
+  tokens: InteractiveCodeToken[],
+  allowTuple = false,
+): string[] | null {
+  if (tokens.length < 2) return null;
+  const squareArray =
+    isToken(tokens[0], 'punctuation', '[') &&
+    isToken(tokens[tokens.length - 1], 'punctuation', ']');
+  const tuple =
+    allowTuple &&
+    isToken(tokens[0], 'punctuation', '(') &&
+    isToken(tokens[tokens.length - 1], 'punctuation', ')');
+  if (!squareArray && !tuple) return null;
+
+  const wrapped = [
+    { type: 'punctuation', value: '(' } as InteractiveCodeToken,
+    ...tokens.slice(1, -1),
+    { type: 'punctuation', value: ')' } as InteractiveCodeToken,
   ];
+  const parsed = splitCodeArguments(wrapped, 0);
+  if (!parsed) return null;
+  if (parsed.args.length === 0) return [];
+  const values: string[] = [];
+  for (const argument of parsed.args) {
+    if (argument.length === 0) continue;
+    const value = staticCodeString(argument);
+    if (value === null) return null;
+    values.push(value);
+  }
+  return values;
+}
 
-  for (const pattern of patterns) {
-    for (const match of input.matchAll(pattern)) {
-      for (const binding of (match[1] ?? '').split(',')) {
-        const parts = binding.trim().split(/\s*(?::|\bas\b)\s*/i);
-        const method = parts[0];
-        const alias = parts[1] || method;
-        if (methods.has(method)) aliases.push({ alias, method });
+function codeKeywordValue(
+  argument: InteractiveCodeToken[],
+  keyword: string,
+): InteractiveCodeToken[] | null {
+  return isToken(argument[0], 'identifier', keyword) && isToken(argument[1], 'punctuation', '=')
+    ? argument.slice(2)
+    : null;
+}
+
+function codeObjectProperty(
+  tokens: InteractiveCodeToken[],
+  propertyName: string,
+): InteractiveCodeToken[] | null {
+  if (
+    tokens.length < 2 ||
+    !isToken(tokens[0], 'punctuation', '{') ||
+    !isToken(tokens[tokens.length - 1], 'punctuation', '}')
+  ) {
+    return null;
+  }
+
+  const wrapped = [
+    { type: 'punctuation', value: '(' } as InteractiveCodeToken,
+    ...tokens.slice(1, -1),
+    { type: 'punctuation', value: ')' } as InteractiveCodeToken,
+  ];
+  const parsed = splitCodeArguments(wrapped, 0);
+  if (!parsed) return null;
+
+  for (const property of parsed.args) {
+    const key = property[0]?.value;
+    if (
+      key?.toLowerCase() === propertyName.toLowerCase() &&
+      isToken(property[1], 'punctuation', ':')
+    ) {
+      return property.slice(2);
+    }
+  }
+  return null;
+}
+
+function staticCodeBoolean(tokens: InteractiveCodeToken[]): boolean | null {
+  if (tokens.length !== 1 || tokens[0].type !== 'identifier') return null;
+  if (tokens[0].value === 'true') return true;
+  if (tokens[0].value === 'false') return false;
+  return null;
+}
+
+function quoteStaticCommandArgument(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function inspectStaticArgv(argv: string[], reason: string): AiAgentPolicyDecision {
+  if (argv.length === 0) return ALLOWED;
+  const command = argv.map(quoteStaticCommandArgument).join(' ');
+  const decision = evaluateInternal(command, 1, 'generic');
+  if (!decision.allowed) return decision;
+  return inspectRuntimeTargetToken(argv[0], reason);
+}
+
+function setInteractiveAlias(
+  state: AiAgentInteractivePolicyState,
+  alias: string,
+  kind: AiAgentInteractiveAliasKind,
+): boolean {
+  if (!IDENTIFIER_PATTERN.test(alias) || alias.length > 128) return true;
+  if (!(alias in state.aliases) && Object.keys(state.aliases).length >= MAX_INTERACTIVE_POLICY_ALIASES) {
+    return false;
+  }
+  state.aliases[alias] = kind;
+  return true;
+}
+
+function nodeMethodKind(method: string): AiAgentInteractiveAliasKind | undefined {
+  return NODE_METHOD_KINDS[method.toLowerCase()];
+}
+
+function pythonSubprocessMethodKind(method: string): AiAgentInteractiveAliasKind | undefined {
+  return PYTHON_SUBPROCESS_METHOD_KINDS[method.toLowerCase()];
+}
+
+function pythonOsMethodKind(method: string): AiAgentInteractiveAliasKind | undefined {
+  return PYTHON_OS_METHOD_KINDS[method.toLowerCase()];
+}
+
+function isChildProcessModule(value: string): boolean {
+  return value === 'child_process' || value === 'node:child_process';
+}
+
+function destructuredNodeAliasKind(
+  source: string,
+  member: string,
+): AiAgentInteractiveAliasKind | undefined {
+  if (source === 'Bun') {
+    if (member.toLowerCase() === 'spawn') return 'bun-spawn';
+    if (member.toLowerCase() === 'spawnsync') return 'bun-spawn-sync';
+  }
+  if (source === 'Deno' && member === 'Command') return 'deno-command';
+  return undefined;
+}
+
+function deriveNodeAliases(
+  tokens: InteractiveCodeToken[],
+  state: AiAgentInteractivePolicyState,
+): boolean {
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      isToken(tokens[index], 'identifier', 'import') &&
+      isToken(tokens[index + 1], 'punctuation', '*') &&
+      isToken(tokens[index + 2], 'identifier', 'as') &&
+      isToken(tokens[index + 3], 'identifier') &&
+      isToken(tokens[index + 4], 'identifier', 'from') &&
+      isToken(tokens[index + 5], 'string') &&
+      isChildProcessModule(tokens[index + 5].value)
+    ) {
+      if (!setInteractiveAlias(state, tokens[index + 3].value, 'node-child-process-receiver')) return false;
+    }
+
+    if (
+      isToken(tokens[index], 'identifier', 'import') &&
+      isToken(tokens[index + 1], 'punctuation', '{')
+    ) {
+      const close = findMatchingCodeToken(tokens, index + 1, '{', '}');
+      if (
+        close > index + 1 &&
+        isToken(tokens[close + 1], 'identifier', 'from') &&
+        isToken(tokens[close + 2], 'string') &&
+        isChildProcessModule(tokens[close + 2].value)
+      ) {
+        let cursor = index + 2;
+        while (cursor < close) {
+          if (isToken(tokens[cursor], 'identifier')) {
+            const method = tokens[cursor].value;
+            const alias =
+              isToken(tokens[cursor + 1], 'identifier', 'as') && isToken(tokens[cursor + 2], 'identifier')
+                ? tokens[cursor + 2].value
+                : method;
+            const kind = nodeMethodKind(method);
+            if (kind && !setInteractiveAlias(state, alias, kind)) return false;
+          }
+          cursor += 1;
+        }
+      }
+    }
+
+    const declarationOffset = ['const', 'let', 'var'].includes(tokens[index]?.value) ? 1 : 0;
+    const targetIndex = index + declarationOffset;
+
+    if (isToken(tokens[targetIndex], 'punctuation', '{')) {
+      const close = findMatchingCodeToken(tokens, targetIndex, '{', '}');
+      if (close > targetIndex && isToken(tokens[close + 1], 'punctuation', '=')) {
+        const rhs = close + 2;
+        const requireClose =
+          isToken(tokens[rhs], 'identifier', 'require') &&
+          isToken(tokens[rhs + 1], 'punctuation', '(')
+            ? findMatchingCodeToken(tokens, rhs + 1, '(', ')')
+            : -1;
+        const childProcessSource =
+          requireClose > rhs + 1 &&
+          isToken(tokens[rhs + 2], 'string') &&
+          isChildProcessModule(tokens[rhs + 2].value);
+        const objectSource = isToken(tokens[rhs], 'identifier')
+          ? tokens[rhs].value
+          : undefined;
+
+        let cursor = targetIndex + 1;
+        while (cursor < close) {
+          if (isToken(tokens[cursor], 'identifier')) {
+            const member = tokens[cursor].value;
+            const alias =
+              isToken(tokens[cursor + 1], 'punctuation', ':') &&
+              isToken(tokens[cursor + 2], 'identifier')
+                ? tokens[cursor + 2].value
+                : member;
+            const objectSourceKind = objectSource
+              ? state.aliases[objectSource]
+              : undefined;
+            const kind = childProcessSource || objectSourceKind === 'node-child-process-receiver'
+              ? nodeMethodKind(member)
+              : objectSource
+                ? destructuredNodeAliasKind(objectSource, member)
+                : undefined;
+            if (kind && !setInteractiveAlias(state, alias, kind)) return false;
+          }
+          cursor += 1;
+        }
+      }
+    }
+
+    if (
+      isToken(tokens[targetIndex], 'identifier') &&
+      isToken(tokens[targetIndex + 1], 'punctuation', '=')
+    ) {
+      const alias = tokens[targetIndex].value;
+      const rhs = targetIndex + 2;
+      let kind: AiAgentInteractiveAliasKind | undefined;
+
+      if (
+        isToken(tokens[rhs], 'identifier', 'require') &&
+        isToken(tokens[rhs + 1], 'punctuation', '(') &&
+        isToken(tokens[rhs + 2], 'string') &&
+        isChildProcessModule(tokens[rhs + 2].value)
+      ) {
+        const requireClose = findMatchingCodeToken(tokens, rhs + 1, '(', ')');
+        if (
+          requireClose > rhs + 1 &&
+          isToken(tokens[requireClose + 1], 'punctuation', '.') &&
+          isToken(tokens[requireClose + 2], 'identifier')
+        ) {
+          kind = nodeMethodKind(tokens[requireClose + 2].value);
+        } else {
+          kind = 'node-child-process-receiver';
+        }
+      } else if (
+        isToken(tokens[rhs], 'identifier', 'Bun') &&
+        isToken(tokens[rhs + 1], 'punctuation', '.') &&
+        isToken(tokens[rhs + 2], 'identifier')
+      ) {
+        kind = destructuredNodeAliasKind('Bun', tokens[rhs + 2].value);
+      } else if (
+        isToken(tokens[rhs], 'identifier', 'Deno') &&
+        isToken(tokens[rhs + 1], 'punctuation', '.') &&
+        isToken(tokens[rhs + 2], 'identifier')
+      ) {
+        kind = destructuredNodeAliasKind('Deno', tokens[rhs + 2].value);
+      } else if (
+        isToken(tokens[rhs], 'identifier') &&
+        isToken(tokens[rhs + 1], 'punctuation', '.') &&
+        isToken(tokens[rhs + 2], 'identifier')
+      ) {
+        const receiverKind = state.aliases[tokens[rhs].value];
+        if (receiverKind === 'node-child-process-receiver') {
+          kind = nodeMethodKind(tokens[rhs + 2].value);
+        }
+      } else if (isToken(tokens[rhs], 'identifier')) {
+        kind = state.aliases[tokens[rhs].value];
+      }
+
+      if (kind) {
+        if (!setInteractiveAlias(state, alias, kind)) return false;
+      } else if (alias in state.aliases) {
+        delete state.aliases[alias];
       }
     }
   }
-  return aliases;
+  return true;
 }
 
-function collectPythonNamedExecutionAliases(
-  input: string,
-  moduleName: string,
-  methods: ReadonlySet<string>,
-): StandaloneExecutionAlias[] {
-  const aliases: StandaloneExecutionAlias[] = [];
-  const pattern = new RegExp(
-    String.raw`\bfrom\s+${escapeRegExp(moduleName)}\s+import\s+([^;\n]+)`,
-    'g',
-  );
-  for (const match of input.matchAll(pattern)) {
-    for (const binding of (match[1] ?? '').split(',')) {
-      const parts = binding.trim().split(/\s+as\s+/i);
-      const method = parts[0];
-      const alias = parts[1] || method;
-      if (methods.has(method)) aliases.push({ alias, method });
+function derivePythonAliases(
+  tokens: InteractiveCodeToken[],
+  state: AiAgentInteractivePolicyState,
+): boolean {
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      isToken(tokens[index], 'identifier', 'import') &&
+      isToken(tokens[index + 1], 'identifier')
+    ) {
+      let cursor = index + 1;
+      while (cursor < tokens.length && isToken(tokens[cursor], 'identifier')) {
+        const moduleName = tokens[cursor].value;
+        cursor += 1;
+        const alias =
+          isToken(tokens[cursor], 'identifier', 'as') &&
+          isToken(tokens[cursor + 1], 'identifier')
+            ? tokens[cursor + 1].value
+            : moduleName;
+        if (alias !== moduleName) cursor += 2;
+
+        const kind = moduleName === 'subprocess'
+          ? 'python-subprocess-receiver'
+          : moduleName === 'os'
+            ? 'python-os-receiver'
+            : undefined;
+        if (kind && !setInteractiveAlias(state, alias, kind)) return false;
+        if (!isToken(tokens[cursor], 'punctuation', ',')) break;
+        cursor += 1;
+      }
+    }
+
+    if (
+      isToken(tokens[index], 'identifier', 'from') &&
+      isToken(tokens[index + 1], 'identifier') &&
+      isToken(tokens[index + 2], 'identifier', 'import')
+    ) {
+      const moduleName = tokens[index + 1].value;
+      let cursor = index + 3;
+      const parenthesized = isToken(tokens[cursor], 'punctuation', '(');
+      if (parenthesized) cursor += 1;
+
+      while (cursor < tokens.length && isToken(tokens[cursor], 'identifier')) {
+        const method = tokens[cursor].value;
+        cursor += 1;
+        const alias =
+          isToken(tokens[cursor], 'identifier', 'as') &&
+          isToken(tokens[cursor + 1], 'identifier')
+            ? tokens[cursor + 1].value
+            : method;
+        if (alias !== method) cursor += 2;
+
+        const kind = moduleName === 'subprocess'
+          ? pythonSubprocessMethodKind(method)
+          : moduleName === 'os'
+            ? pythonOsMethodKind(method)
+            : undefined;
+        if (kind && !setInteractiveAlias(state, alias, kind)) return false;
+        if (!isToken(tokens[cursor], 'punctuation', ',')) break;
+        cursor += 1;
+      }
+    }
+
+    if (
+      isToken(tokens[index], 'identifier') &&
+      isToken(tokens[index + 1], 'punctuation', '=') &&
+      tokens[index - 1]?.value !== 'as'
+    ) {
+      const alias = tokens[index].value;
+      const rhs = index + 2;
+      let kind: AiAgentInteractiveAliasKind | undefined;
+
+      if (
+        isToken(tokens[rhs], 'identifier') &&
+        isToken(tokens[rhs + 1], 'punctuation', '.') &&
+        isToken(tokens[rhs + 2], 'identifier')
+      ) {
+        const receiver = tokens[rhs].value;
+        const receiverKind = state.aliases[receiver];
+        if (receiver === 'subprocess' || receiverKind === 'python-subprocess-receiver') {
+          kind = pythonSubprocessMethodKind(tokens[rhs + 2].value);
+        } else if (receiver === 'os' || receiverKind === 'python-os-receiver') {
+          kind = pythonOsMethodKind(tokens[rhs + 2].value);
+        }
+      } else if (isToken(tokens[rhs], 'identifier')) {
+        kind = state.aliases[tokens[rhs].value];
+      }
+
+      if (kind) {
+        if (!setInteractiveAlias(state, alias, kind)) return false;
+      } else if (alias in state.aliases) {
+        delete state.aliases[alias];
+      }
     }
   }
-  return aliases;
+  return true;
 }
 
-function inspectNodeReplInput(input: string): AiAgentPolicyDecision {
-  const receivers = [String.raw`(?:require\s*\(\s*['"](?:node:)?child_process['"]\s*\)|child_process)`];
-  const aliases = collectAliases(input, [
-    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"](?:node:)?child_process['"]\s*\)/g,
-    /\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+['"](?:node:)?child_process['"]/g,
-  ]);
-  receivers.push(...aliases.map((alias) => escapeRegExp(alias)));
+function deriveInteractiveAliases(
+  tokens: InteractiveCodeToken[],
+  mode: InteractiveInputPolicyMode,
+  state: AiAgentInteractivePolicyState,
+): boolean {
+  if (mode === 'python-repl') return derivePythonAliases(tokens, state);
+  if (mode === 'node-repl' || mode === 'bun-repl' || mode === 'deno-repl') {
+    return deriveNodeAliases(tokens, state);
+  }
+  return true;
+}
 
-  for (const receiver of receivers) {
-    const decision = inspectExecutionCalls(
-      input,
-      receiver,
-      'spawn|spawnsync|execfile|execfilesync|fork|exec|execsync',
-      new Set(['exec', 'execsync']),
-      'blocked AI agent Node REPL process target',
-    );
-    if (!decision.allowed) return decision;
+function inspectNodeProcessCall(
+  method: string,
+  args: InteractiveCodeToken[][],
+): AiAgentPolicyDecision {
+  const lower = method.toLowerCase();
+  const positional = args.filter((argument) => !isToken(argument[1], 'punctuation', '='));
+  if (lower === 'exec' || lower === 'execsync') {
+    const command = staticCodeString(positional[0] ?? []);
+    return command === null ? ALLOWED : evaluateInternal(command, 1, 'generic');
   }
 
-  return inspectStandaloneExecutionCalls(
-    input,
-    collectNodeNamedExecutionAliases(input),
-    new Set(['exec', 'execsync']),
+  const target = staticCodeString(positional[0] ?? []);
+  if (target === null) return ALLOWED;
+
+  if (lower === 'spawn' || lower === 'spawnsync') {
+    for (const optionCandidate of [positional[1], positional[2]]) {
+      if (!optionCandidate) continue;
+      const shellTokens = codeObjectProperty(optionCandidate, 'shell');
+      if (!shellTokens) continue;
+
+      const shellExecutable = staticCodeString(shellTokens);
+      if (shellExecutable !== null) {
+        const shellDecision = inspectRuntimeTargetToken(
+          shellExecutable,
+          'blocked AI agent Node REPL shell target',
+        );
+        if (!shellDecision.allowed) return shellDecision;
+        return evaluateInternal(target, 1, inferShellDialect(shellExecutable));
+      }
+
+      if (staticCodeBoolean(shellTokens) === true) {
+        const defaultDialect: ShellDialect = process.platform === 'win32' ? 'cmd' : 'posix';
+        return evaluateInternal(target, 1, defaultDialect);
+      }
+    }
+  }
+
+  const staticArgs = staticCodeArray(positional[1] ?? []) ?? [];
+  return inspectStaticArgv(
+    [target, ...staticArgs],
     'blocked AI agent Node REPL process target',
   );
 }
 
-function inspectPythonReplInput(input: string): AiAgentPolicyDecision {
-  const subprocessMethods = new Set(['run', 'Popen', 'call', 'check_call', 'check_output']);
-  const subprocessCommandMethods = new Set(
-    [...subprocessMethods].map((method) => method.toLowerCase()),
-  );
-  const subprocessReceivers = [
-    String.raw`(?:__import__\s*\(\s*['"]subprocess['"]\s*\)|subprocess)`,
-  ];
-  const subprocessAliases = collectAliases(input, [
-    /\bimport\s+subprocess\s+as\s+([A-Za-z_][\w]*)/g,
-  ]);
-  subprocessReceivers.push(...subprocessAliases.map((alias) => escapeRegExp(alias)));
-
-  for (const receiver of subprocessReceivers) {
-    const decision = inspectExecutionCalls(
-      input,
-      receiver,
-      'run|popen|call|check_call|check_output',
-      subprocessCommandMethods,
-      'blocked AI agent Python REPL process target',
-    );
-    if (!decision.allowed) return decision;
+function inspectPythonProcessCall(
+  method: string,
+  args: InteractiveCodeToken[][],
+): AiAgentPolicyDecision {
+  for (const argument of args) {
+    const executableTokens = codeKeywordValue(argument, 'executable');
+    if (executableTokens) {
+      const executable = staticCodeString(executableTokens);
+      if (executable !== null) {
+        const decision = inspectRuntimeTargetToken(
+          executable,
+          'blocked AI agent Python REPL executable target',
+        );
+        if (!decision.allowed) return decision;
+      }
+    }
   }
 
-  const namedDecision = inspectStandaloneExecutionCalls(
-    input,
-    collectPythonNamedExecutionAliases(input, 'subprocess', subprocessMethods),
-    subprocessCommandMethods,
-    'blocked AI agent Python REPL process target',
-  );
-  if (!namedDecision.allowed) return namedDecision;
-
-  const osMethods = new Set(['system', 'popen']);
-  const osReceivers = [String.raw`(?:__import__\s*\(\s*['"]os['"]\s*\)|os)`];
-  const osAliases = collectAliases(input, [
-    /\bimport\s+os\s+as\s+([A-Za-z_][\w]*)/g,
-  ]);
-  osReceivers.push(...osAliases.map((alias) => escapeRegExp(alias)));
-
-  for (const receiver of osReceivers) {
-    const decision = inspectExecutionCalls(
-      input,
-      receiver,
-      'system|popen',
-      osMethods,
-      'blocked AI agent Python REPL command string',
-    );
-    if (!decision.allowed) return decision;
+  let commandTokens: InteractiveCodeToken[] | undefined;
+  for (const argument of args) {
+    commandTokens = codeKeywordValue(argument, 'args') ?? commandTokens;
   }
+  commandTokens ??= args.find((argument) => !isToken(argument[1], 'punctuation', '='));
+  if (!commandTokens) return ALLOWED;
 
-  return inspectStandaloneExecutionCalls(
-    input,
-    collectPythonNamedExecutionAliases(input, 'os', osMethods),
-    osMethods,
-    'blocked AI agent Python REPL command string',
-  );
+  const argv = staticCodeArray(commandTokens, true);
+  if (argv) {
+    return inspectStaticArgv(argv, 'blocked AI agent Python REPL process target');
+  }
+  const command = staticCodeString(commandTokens);
+  if (command !== null) return evaluateInternal(command, 1, 'generic');
+  return ALLOWED;
 }
 
-function inspectBunReplInput(input: string): AiAgentPolicyDecision {
-  const nodeDecision = inspectNodeReplInput(input);
-  if (!nodeDecision.allowed) return nodeDecision;
-  return inspectExecutionCalls(
-    input,
-    'Bun',
-    'spawn|spawnsync',
-    new Set(),
-    'blocked AI agent Bun REPL process target',
-  );
-}
-
-function inspectDenoReplInput(input: string): AiAgentPolicyDecision {
-  const nodeDecision = inspectNodeReplInput(input);
-  if (!nodeDecision.allowed) return nodeDecision;
-  const pattern = new RegExp(
-    String.raw`(?:new\s+)?Deno\s*\.\s*Command\s*\(\s*${CODE_STRING_LITERAL}`,
-    'gsi',
-  );
-  for (const match of input.matchAll(pattern)) {
-    const target = decodeCodeStringLiteral(match[1] ?? match[2] ?? '');
-    const decision = inspectRuntimeTargetToken(target, 'blocked AI agent Deno REPL process target');
-    if (!decision.allowed) return decision;
+function inspectBunProcessCall(args: InteractiveCodeToken[][]): AiAgentPolicyDecision {
+  const first = args[0] ?? [];
+  const arrayCommand = staticCodeArray(first);
+  if (arrayCommand) {
+    return inspectStaticArgv(arrayCommand, 'blocked AI agent Bun REPL process target');
+  }
+  const objectCommand = codeObjectProperty(first, 'cmd');
+  const objectArgv = objectCommand ? staticCodeArray(objectCommand) : null;
+  if (objectArgv) {
+    return inspectStaticArgv(objectArgv, 'blocked AI agent Bun REPL process target');
+  }
+  const target = staticCodeString(first);
+  if (target !== null) {
+    const staticArgs = staticCodeArray(args[1] ?? []) ?? [];
+    return inspectStaticArgv(
+      [target, ...staticArgs],
+      'blocked AI agent Bun REPL process target',
+    );
   }
   return ALLOWED;
+}
+
+function inspectDenoCommandCall(args: InteractiveCodeToken[][]): AiAgentPolicyDecision {
+  const target = staticCodeString(args[0] ?? []);
+  if (target === null) return ALLOWED;
+  const argsProperty = codeObjectProperty(args[1] ?? [], 'args');
+  const staticArgs = argsProperty ? staticCodeArray(argsProperty) ?? [] : [];
+  return inspectStaticArgv(
+    [target, ...staticArgs],
+    'blocked AI agent Deno REPL process target',
+  );
+}
+
+function aliasMethod(kind: AiAgentInteractiveAliasKind): string | null {
+  const mapping: Partial<Record<AiAgentInteractiveAliasKind, string>> = {
+    'node-spawn': 'spawn',
+    'node-spawn-sync': 'spawnsync',
+    'node-exec-file': 'execfile',
+    'node-exec-file-sync': 'execfilesync',
+    'node-fork': 'fork',
+    'node-exec': 'exec',
+    'node-exec-sync': 'execsync',
+    'python-run': 'run',
+    'python-popen': 'popen',
+    'python-call': 'call',
+    'python-check-call': 'check_call',
+    'python-check-output': 'check_output',
+    'python-system': 'system',
+    'python-os-popen': 'popen',
+    'bun-spawn': 'spawn',
+    'bun-spawn-sync': 'spawnsync',
+  };
+  return mapping[kind] ?? null;
+}
+
+function inspectNodeInteractiveTokens(
+  tokens: InteractiveCodeToken[],
+  state: AiAgentInteractivePolicyState,
+): AiAgentPolicyDecision {
+  for (let index = 0; index < tokens.length; index += 1) {
+    let method: string | null = null;
+    let openParen = -1;
+
+    if (
+      isToken(tokens[index], 'identifier', 'require') &&
+      isToken(tokens[index + 1], 'punctuation', '(') &&
+      isToken(tokens[index + 2], 'string') &&
+      isChildProcessModule(tokens[index + 2].value)
+    ) {
+      const requireClose = findMatchingCodeToken(tokens, index + 1, '(', ')');
+      if (
+        requireClose > index + 1 &&
+        isToken(tokens[requireClose + 1], 'punctuation', '.') &&
+        isToken(tokens[requireClose + 2], 'identifier') &&
+        isToken(tokens[requireClose + 3], 'punctuation', '(')
+      ) {
+        method = tokens[requireClose + 2].value;
+        openParen = requireClose + 3;
+      }
+    } else if (
+      isToken(tokens[index], 'identifier') &&
+      isToken(tokens[index + 1], 'punctuation', '.') &&
+      isToken(tokens[index + 2], 'identifier') &&
+      isToken(tokens[index + 3], 'punctuation', '(')
+    ) {
+      const receiver = tokens[index].value;
+      const receiverKind = state.aliases[receiver];
+      if (receiver === 'child_process' || receiverKind === 'node-child-process-receiver') {
+        method = tokens[index + 2].value;
+        openParen = index + 3;
+      }
+    } else if (
+      isToken(tokens[index], 'identifier') &&
+      isToken(tokens[index + 1], 'punctuation', '(')
+    ) {
+      const kind = state.aliases[tokens[index].value];
+      if (kind?.startsWith('node-') && kind !== 'node-child-process-receiver') {
+        method = aliasMethod(kind);
+        openParen = index + 1;
+      }
+    }
+
+    if (method && nodeMethodKind(method)) {
+      const parsed = splitCodeArguments(tokens, openParen);
+      if (!parsed) continue;
+      const decision = inspectNodeProcessCall(method, parsed.args);
+      if (!decision.allowed) return decision;
+      index = parsed.closeParenIndex;
+    }
+  }
+  return ALLOWED;
+}
+
+function inspectPythonInteractiveTokens(
+  tokens: InteractiveCodeToken[],
+  state: AiAgentInteractivePolicyState,
+): AiAgentPolicyDecision {
+  for (let index = 0; index < tokens.length; index += 1) {
+    let method: string | null = null;
+    let openParen = -1;
+    let osMethod = false;
+
+    if (
+      isToken(tokens[index], 'identifier', '__import__') &&
+      isToken(tokens[index + 1], 'punctuation', '(') &&
+      isToken(tokens[index + 2], 'string')
+    ) {
+      const importClose = findMatchingCodeToken(tokens, index + 1, '(', ')');
+      if (
+        importClose > index + 1 &&
+        isToken(tokens[importClose + 1], 'punctuation', '.') &&
+        isToken(tokens[importClose + 2], 'identifier') &&
+        isToken(tokens[importClose + 3], 'punctuation', '(')
+      ) {
+        method = tokens[importClose + 2].value;
+        openParen = importClose + 3;
+        osMethod = tokens[index + 2].value === 'os';
+      }
+    } else if (
+      isToken(tokens[index], 'identifier') &&
+      isToken(tokens[index + 1], 'punctuation', '.') &&
+      isToken(tokens[index + 2], 'identifier') &&
+      isToken(tokens[index + 3], 'punctuation', '(')
+    ) {
+      const receiver = tokens[index].value;
+      const receiverKind = state.aliases[receiver];
+      if (receiver === 'subprocess' || receiverKind === 'python-subprocess-receiver') {
+        method = tokens[index + 2].value;
+        openParen = index + 3;
+      } else if (receiver === 'os' || receiverKind === 'python-os-receiver') {
+        method = tokens[index + 2].value;
+        openParen = index + 3;
+        osMethod = true;
+      }
+    } else if (
+      isToken(tokens[index], 'identifier') &&
+      isToken(tokens[index + 1], 'punctuation', '(')
+    ) {
+      const kind = state.aliases[tokens[index].value];
+      const mappedMethod = kind ? aliasMethod(kind) : null;
+      if (mappedMethod && kind?.startsWith('python-')) {
+        method = mappedMethod;
+        openParen = index + 1;
+        osMethod = kind === 'python-system' || kind === 'python-os-popen';
+      }
+    }
+
+    if (!method) continue;
+    const methodKnown = osMethod
+      ? pythonOsMethodKind(method)
+      : pythonSubprocessMethodKind(method);
+    if (!methodKnown) continue;
+    const parsed = splitCodeArguments(tokens, openParen);
+    if (!parsed) continue;
+    const decision = osMethod
+      ? (() => {
+          const command = staticCodeString(parsed.args[0] ?? []);
+          return command === null ? ALLOWED : evaluateInternal(command, 1, 'generic');
+        })()
+      : inspectPythonProcessCall(method, parsed.args);
+    if (!decision.allowed) return decision;
+    index = parsed.closeParenIndex;
+  }
+  return ALLOWED;
+}
+
+function inspectBunInteractiveTokens(
+  tokens: InteractiveCodeToken[],
+  state: AiAgentInteractivePolicyState,
+): AiAgentPolicyDecision {
+  const nodeDecision = inspectNodeInteractiveTokens(tokens, state);
+  if (!nodeDecision.allowed) return nodeDecision;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    let openParen = -1;
+    if (
+      isToken(tokens[index], 'identifier', 'Bun') &&
+      isToken(tokens[index + 1], 'punctuation', '.') &&
+      isToken(tokens[index + 2], 'identifier') &&
+      ['spawn', 'spawnsync'].includes(tokens[index + 2].value.toLowerCase()) &&
+      isToken(tokens[index + 3], 'punctuation', '(')
+    ) {
+      openParen = index + 3;
+    } else if (
+      isToken(tokens[index], 'identifier') &&
+      isToken(tokens[index + 1], 'punctuation', '(') &&
+      ['bun-spawn', 'bun-spawn-sync'].includes(state.aliases[tokens[index].value] ?? '')
+    ) {
+      openParen = index + 1;
+    }
+    if (openParen < 0) continue;
+    const parsed = splitCodeArguments(tokens, openParen);
+    if (!parsed) continue;
+    const decision = inspectBunProcessCall(parsed.args);
+    if (!decision.allowed) return decision;
+    index = parsed.closeParenIndex;
+  }
+  return ALLOWED;
+}
+
+function inspectDenoInteractiveTokens(
+  tokens: InteractiveCodeToken[],
+  state: AiAgentInteractivePolicyState,
+): AiAgentPolicyDecision {
+  const nodeDecision = inspectNodeInteractiveTokens(tokens, state);
+  if (!nodeDecision.allowed) return nodeDecision;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    let openParen = -1;
+    if (
+      isToken(tokens[index], 'identifier', 'new') &&
+      isToken(tokens[index + 1], 'identifier', 'Deno') &&
+      isToken(tokens[index + 2], 'punctuation', '.') &&
+      isToken(tokens[index + 3], 'identifier', 'Command') &&
+      isToken(tokens[index + 4], 'punctuation', '(')
+    ) {
+      openParen = index + 4;
+    } else if (
+      isToken(tokens[index], 'identifier', 'new') &&
+      isToken(tokens[index + 1], 'identifier') &&
+      state.aliases[tokens[index + 1].value] === 'deno-command' &&
+      isToken(tokens[index + 2], 'punctuation', '(')
+    ) {
+      openParen = index + 2;
+    }
+    if (openParen < 0) continue;
+    const parsed = splitCodeArguments(tokens, openParen);
+    if (!parsed) continue;
+    const decision = inspectDenoCommandCall(parsed.args);
+    if (!decision.allowed) return decision;
+    index = parsed.closeParenIndex;
+  }
+  return ALLOWED;
+}
+
+function inspectInteractiveTokens(
+  tokens: InteractiveCodeToken[],
+  mode: InteractiveInputPolicyMode,
+  state: AiAgentInteractivePolicyState,
+): AiAgentPolicyDecision {
+  if (mode === 'python-repl') return inspectPythonInteractiveTokens(tokens, state);
+  if (mode === 'node-repl') return inspectNodeInteractiveTokens(tokens, state);
+  if (mode === 'bun-repl') return inspectBunInteractiveTokens(tokens, state);
+  if (mode === 'deno-repl') return inspectDenoInteractiveTokens(tokens, state);
+  return ALLOWED;
+}
+
+export function evaluateAiAgentInteractiveInputWithState(
+  input: string,
+  mode: InteractiveInputPolicyMode,
+  state: AiAgentInteractivePolicyState = createAiAgentInteractivePolicyState(),
+): AiAgentInteractiveEvaluation {
+  const nextState = cloneInteractiveState(state);
+  try {
+    if (mode === 'command') {
+      return { decision: evaluateInternal(input, 0, 'generic'), nextState };
+    }
+    if (mode === 'cmd-shell') {
+      return { decision: evaluateInternal(input, 0, 'cmd'), nextState };
+    }
+    if (mode === 'powershell-shell') {
+      return { decision: evaluateInternal(input, 0, 'powershell'), nextState };
+    }
+    if (mode === 'posix-shell') {
+      return { decision: evaluateInternal(input, 0, 'posix'), nextState };
+    }
+    if (input.length > MAX_AI_AGENT_POLICY_INPUT_LENGTH) {
+      return {
+        decision: blocked('unknown', '<input-length>', 'AI agent policy input length exceeded'),
+        nextState,
+      };
+    }
+    if (!input.trim()) return { decision: ALLOWED, nextState };
+
+    const tokens = lexInteractiveCode(input, mode);
+    if (!deriveInteractiveAliases(tokens, mode, nextState)) {
+      return {
+        decision: blocked('unknown', '<alias-state>', 'AI agent interactive alias state limit exceeded'),
+        nextState: cloneInteractiveState(state),
+      };
+    }
+    return { decision: inspectInteractiveTokens(tokens, mode, nextState), nextState };
+  } catch {
+    return {
+      decision: blocked('unknown', '<policy-error>', 'AI agent interactive policy inspection failed closed'),
+      nextState: cloneInteractiveState(state),
+    };
+  }
 }
 
 export function evaluateAiAgentInteractiveInput(
   input: string,
   mode: InteractiveInputPolicyMode,
 ): AiAgentPolicyDecision {
-  try {
-    if (mode === 'command') return evaluateInternal(input, 0, 'generic');
-    if (mode === 'cmd-shell') return evaluateInternal(input, 0, 'cmd');
-    if (mode === 'powershell-shell') return evaluateInternal(input, 0, 'powershell');
-    if (mode === 'posix-shell') return evaluateInternal(input, 0, 'posix');
-    if (input.length > MAX_AI_AGENT_POLICY_INPUT_LENGTH) {
-      return blocked('unknown', '<input-length>', 'AI agent policy input length exceeded');
-    }
-    if (!input.trim() || standaloneQuotedLiteral(input)) return ALLOWED;
-
-    if (mode === 'python-repl') return inspectPythonReplInput(input);
-    if (mode === 'node-repl') return inspectNodeReplInput(input);
-    if (mode === 'bun-repl') return inspectBunReplInput(input);
-    if (mode === 'deno-repl') return inspectDenoReplInput(input);
-    return blocked('unknown', '<policy-mode>', 'Unknown interactive input policy mode');
-  } catch {
-    return blocked('unknown', '<policy-error>', 'AI agent interactive policy inspection failed closed');
-  }
+  return evaluateAiAgentInteractiveInputWithState(input, mode).decision;
 }
 
 export function evaluateAiAgentInvocation(

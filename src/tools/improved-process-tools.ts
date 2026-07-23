@@ -1,6 +1,7 @@
 import { terminalManager, MAX_BUFFERED_OUTPUT_CHARS } from '../terminal-manager.js';
 import {
-  evaluateAiAgentInteractiveInput,
+  createAiAgentInteractivePolicyState,
+  evaluateAiAgentInteractiveInputWithState,
   evaluateAiAgentInvocation,
 } from '../ai-agent-policy.js';
 import { commandManager } from '../command-manager.js';
@@ -11,7 +12,7 @@ import {
   ForceTerminateArgsSchema,
 } from './schemas.js';
 import { capture } from '../utils/capture.js';
-import { InteractiveInputPolicyMode, ServerResult } from '../types.js';
+import { ServerResult } from '../types.js';
 import {
   analyzeProcessState,
   cleanProcessOutput,
@@ -41,12 +42,6 @@ function immutablePolicyError(input: string, shell?: string): ServerResult | nul
   return immutableDecisionError(evaluateAiAgentInvocation(input, shell));
 }
 
-function immutableInteractivePolicyError(
-  input: string,
-  mode: InteractiveInputPolicyMode,
-): ServerResult | null {
-  return immutableDecisionError(evaluateAiAgentInteractiveInput(input, mode));
-}
 
 /**
  * Start an owned local terminal process.
@@ -336,11 +331,6 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
     verbose_timing = false,
   } = parsed.data;
 
-  const session = terminalManager.getSession(pid);
-  const inputPolicyMode = session?.inputPolicyMode ?? 'command';
-  const policyError = immutableInteractivePolicyError(input, inputPolicyMode);
-  if (policyError) return policyError;
-
   const config = await configManager.getConfig();
   const maxOutputLines = config.fileReadLineLimit ?? 1000;
   const startTime = Date.now();
@@ -360,6 +350,18 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
       inputLength: input.length,
     });
 
+    // Keep policy evaluation, stdin delivery, and state commit in one synchronous
+    // section so concurrent requests observe the same order as actual REPL input.
+    const session = terminalManager.getSession(pid);
+    const inputPolicyMode = session?.inputPolicyMode ?? 'command';
+    const interactiveEvaluation = evaluateAiAgentInteractiveInputWithState(
+      input,
+      inputPolicyMode,
+      session?.inputPolicyState ?? createAiAgentInteractivePolicyState(),
+    );
+    const policyError = immutableDecisionError(interactiveEvaluation.decision);
+    if (policyError) return policyError;
+
     const outputSnapshot = terminalManager.captureOutputSnapshot(pid);
     const success = terminalManager.sendInputToProcess(pid, input);
 
@@ -374,6 +376,8 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
         isError: true,
       };
     }
+
+    if (session) session.inputPolicyState = interactiveEvaluation.nextState;
 
     if (!wait_for_prompt) {
       exitReason = 'no_wait';

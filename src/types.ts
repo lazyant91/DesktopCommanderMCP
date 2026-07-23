@@ -23,10 +23,37 @@ export type InteractiveInputPolicyMode =
   | 'deno-repl'
   | 'bun-repl';
 
+export type AiAgentInteractiveAliasKind =
+  | 'node-child-process-receiver'
+  | 'node-spawn'
+  | 'node-spawn-sync'
+  | 'node-exec-file'
+  | 'node-exec-file-sync'
+  | 'node-fork'
+  | 'node-exec'
+  | 'node-exec-sync'
+  | 'python-subprocess-receiver'
+  | 'python-run'
+  | 'python-popen'
+  | 'python-call'
+  | 'python-check-call'
+  | 'python-check-output'
+  | 'python-os-receiver'
+  | 'python-system'
+  | 'python-os-popen'
+  | 'bun-spawn'
+  | 'bun-spawn-sync'
+  | 'deno-command';
+
+export interface AiAgentInteractivePolicyState {
+  aliases: Record<string, AiAgentInteractiveAliasKind>;
+}
+
 export interface TerminalSession {
   pid: number;
   process: ChildProcess;
   inputPolicyMode: InteractiveInputPolicyMode;
+  inputPolicyState: AiAgentInteractivePolicyState;
   outputLines: string[];      // Line-based buffer (persistent, capped — oldest lines evicted)
   lastReadIndex: number;      // Track where "new" output starts for default reads
   isBlocked: boolean;

@@ -380,6 +380,7 @@ export class TerminalManager {
       pid: childProcess.pid,
       process: childProcess,
       inputPolicyMode: classifyInteractiveInputPolicy(enhancedCommand),
+      inputPolicyState: { aliases: {} },
       outputLines: [],           // Line-based buffer
       lastReadIndex: 0,          // Track where "new" output starts
       isBlocked: false,

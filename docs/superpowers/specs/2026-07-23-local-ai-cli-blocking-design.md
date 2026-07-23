@@ -57,10 +57,16 @@ export type AiAgentPolicyDecision =
   | { allowed: false; agent: string; matchedToken: string; reason: string };
 
 export function evaluateAiAgentInvocation(command: string): AiAgentPolicyDecision;
+export function createAiAgentInteractivePolicyState(): AiAgentInteractivePolicyState;
 export function evaluateAiAgentInteractiveInput(
   input: string,
   mode: InteractiveInputPolicyMode,
 ): AiAgentPolicyDecision;
+export function evaluateAiAgentInteractiveInputWithState(
+  input: string,
+  mode: InteractiveInputPolicyMode,
+  state: AiAgentInteractivePolicyState,
+): { decision: AiAgentPolicyDecision; nextState: AiAgentInteractivePolicyState };
 ```
 
 The implementation performs bounded, deterministic command inspection:
@@ -75,20 +81,21 @@ The implementation performs bounded, deterministic command inspection:
    - `pnpm [global options] dlx [options] <package>`
    - `yarn [global options] dlx [options] <package>`
 6. Recognize shell-wrapper payloads, groups, common control statements, and recursively inspect their command text:
-   - `cmd /c ...`
+   - `cmd /c ...`, including CMD `@` echo-suppression prefixes
    - `powershell -Command ...`
    - `powershell -EncodedCommand ...` only when the Base64 payload can be decoded safely; malformed payloads fail closed
    - `pwsh -Command ...`
-   - Bash, PowerShell, and CMD grouping and `if` forms
+   - Bash, PowerShell, and CMD grouping, `if`, CMD `for`, and POSIX `case` forms without treating quoted examples as executable control syntax
 7. Recognize PowerShell launch syntax and CMD `start` title semantics without conflating them:
    - call operator: `& "C:\path\codex.cmd"`
    - `Start-Process codex`
    - `Start-Process -FilePath "C:\path\claude.exe"`
    - PowerShell alias `start "codex" ...`
 8. Recognize known script entry points invoked through `node`, `python`, `python3`, `py`, `bun`, or `deno` from the script basename, an official package path, or a known entry-point layout such as `codex/bin/index.js`. Ordinary project directories named after an agent are not sufficient to block an unrelated script.
-9. Recursively inspect command substitutions and script blocks already supported by the command parser where applicable.
-10. Validate the requested `start_process` shell override and resolved `defaultShell` before process creation.
-11. Enforce a recursion-depth and 64 KiB input-length limit. Exceeding either limit returns a denied decision so malformed input cannot bypass policy.
+9. Inspect static inline code supplied through Node `-e`, Python `-c`, Bun `-e`, and `deno eval` with the same runtime-aware process API parser used for REPL input.
+10. Recursively inspect command substitutions and script blocks already supported by the command parser where applicable.
+11. Validate the requested `start_process` shell override and resolved `defaultShell` before process creation.
+12. Enforce a recursion-depth and 64 KiB input-length limit. Exceeding either limit returns a denied decision so malformed input cannot bypass policy.
 
 The policy is deliberately narrower than a general text search. A harmless command such as `rg "codex" README.md` must remain allowed because the matched word is data, not an execution target.
 
@@ -108,11 +115,11 @@ The existing `blockedCommands` validation remains unchanged for general command 
 
 ### `interact_with_process`
 
-`interactWithProcess` evaluates input before writing it to the owned process stdin. Shell and unknown sessions use full command inspection. Directly opened standard Python, Node.js, Deno, and Bun REPL sessions retain a runtime-specific input mode.
+`interactWithProcess` evaluates input before writing it to the owned process stdin. Shell and unknown sessions use full command inspection. Directly opened standard Python, Node.js, Deno, and Bun REPL sessions retain a runtime-specific input mode and a bounded per-session static alias state.
 
-When denied, it returns the same class of MCP error and does not call `terminalManager.sendInputToProcess`. In REPL data modes, quoted names and plain prose remain allowed, while explicit standard process-launch APIs are inspected: Node `child_process`, Python `subprocess` and `os.system`, `Bun.spawn`, and `Deno.Command`, including common module aliases and named imports.
+When denied, it returns the same class of MCP error and does not call `terminalManager.sendInputToProcess`. In REPL data modes, quoted names, plain prose, comments, string literals, and regular-expression literals remain allowed, while explicit standard process-launch APIs are tokenized and inspected: Node `child_process`, Python `subprocess` and `os.system`, `Bun.spawn`, and `Deno.Command`. Static argv arrays and Python tuples are recursively evaluated through shell wrappers. Static dot or bracket properties and Node `spawn` shell options are inspected, while JavaScript template-literal or Python f-string code expressions are inspected separately from surrounding text.
 
-This closes direct REPL process-launch bypasses without treating every agent-name string as a command. Dynamically constructed targets, arbitrary evaluation helpers, and unrelated scripts remain outside the name-based parser's guarantee.
+Recognized module receivers, imported functions, Bun spawn aliases, and Deno command constructors are retained across successive inputs as session-scoped aliases. The next state is committed only after stdin accepts the declaration, is capped at 64 aliases, and fails closed on overflow. This closes direct and stateful REPL process-launch bypasses without treating every agent-name string as a command. Dynamically constructed targets or arguments, arbitrary evaluation helpers, and unrelated scripts remain outside the name-based parser's guarantee.
 
 ## Configuration behavior
 
@@ -152,8 +159,10 @@ Required blocked cases:
 - Bun and Deno runtime options before a blocked `run` target.
 - A blocked executable supplied as an explicit `start_process` shell override or configured `defaultShell`.
 - Direct Node, Python, Bun, and Deno REPL process-launch APIs sent through `interact_with_process`.
+- Static argv shell-wrapper launches, executable overrides, and process calls inside template or f-string expressions.
+- Session-scoped aliases declared in earlier REPL inputs, including module, function, Bun, and Deno aliases.
 - AI blocking while `blockedCommands` is empty.
-- Malformed, oversized, or excessive recursive wrapper input fails closed.
+- Malformed, oversized, alias-overflow, or excessive recursive wrapper input fails closed.
 
 Required allowed cases:
 
@@ -162,7 +171,7 @@ Required allowed cases:
 - Search, echo, and file operations where an agent name is only data.
 - Ordinary project directories named after an agent when the actual script is unrelated.
 - CMD `start` window titles containing an agent name when the launched command is harmless.
-- Ordinary interactive REPL input, prose mentioning agent names, and process-launch APIs targeting non-agent tools.
+- Ordinary interactive REPL input, prose mentioning agent names, comments, string literals, harmless template/f-string expressions, and process-launch APIs targeting non-agent tools.
 - Existing configurable `blockedCommands` behavior.
 
 Run the focused policy tests, complete unit suite, clean TypeScript build, and integration suite before opening the pull request.

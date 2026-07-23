@@ -14,7 +14,15 @@ import {
 const originalConfig = await configManager.getConfig();
 const originalGetSession = terminalManager.getSession.bind(terminalManager);
 const originalExecuteCommand = terminalManager.executeCommand.bind(terminalManager);
+const originalSendInputToProcess = terminalManager.sendInputToProcess.bind(terminalManager);
 let executeCommandCalls = 0;
+const statefulSendCalls = new Map();
+const statefulSessions = new Map([
+  [2147483005, { inputPolicyMode: 'node-repl', inputPolicyState: { aliases: {} } }],
+  [2147483006, { inputPolicyMode: 'python-repl', inputPolicyState: { aliases: {} } }],
+  [2147483007, { inputPolicyMode: 'bun-repl', inputPolicyState: { aliases: {} } }],
+  [2147483008, { inputPolicyMode: 'deno-repl', inputPolicyState: { aliases: {} } }],
+]);
 
 try {
   await configManager.setValue('blockedCommands', []);
@@ -130,7 +138,15 @@ try {
     if (pid === 2147483002) return { inputPolicyMode: 'python-repl' };
     if (pid === 2147483003) return { inputPolicyMode: 'cmd-shell' };
     if (pid === 2147483004) return { inputPolicyMode: 'powershell-shell' };
+    if (statefulSessions.has(pid)) return statefulSessions.get(pid);
     return originalGetSession(pid);
+  };
+  terminalManager.sendInputToProcess = (pid, input) => {
+    if (statefulSessions.has(pid)) {
+      statefulSendCalls.set(pid, (statefulSendCalls.get(pid) ?? 0) + 1);
+      return true;
+    }
+    return originalSendInputToProcess(pid, input);
   };
 
   for (const pid of [2147483001, 2147483002]) {
@@ -171,6 +187,71 @@ try {
   assert.equal(powerShellTarget.isError, true);
   assert.match(powerShellTarget.content[0].text, /immutable policy/i);
 
+  const statefulProcessCases = [
+    {
+      pid: 2147483005,
+      declarations: ["const cp = require('node:child_process')"],
+      alias: 'cp',
+      aliasKind: 'node-child-process-receiver',
+      invocation: "cp.spawn('codex', ['exec', 'review'])",
+    },
+    {
+      pid: 2147483006,
+      declarations: ['import subprocess as sp'],
+      alias: 'sp',
+      aliasKind: 'python-subprocess-receiver',
+      invocation: "sp.run(['codex', 'exec', 'review'])",
+    },
+    {
+      pid: 2147483007,
+      declarations: ['const launch = Bun.spawn'],
+      alias: 'launch',
+      aliasKind: 'bun-spawn',
+      invocation: "launch(['codex', 'exec', 'review'])",
+    },
+    {
+      pid: 2147483008,
+      declarations: ['const Command = Deno.Command'],
+      alias: 'Command',
+      aliasKind: 'deno-command',
+      invocation: "new Command('codex')",
+    },
+  ];
+
+  for (const testCase of statefulProcessCases) {
+    for (const declaration of testCase.declarations) {
+      const declarationResult = await interactWithProcess({
+        pid: testCase.pid,
+        input: declaration,
+        timeout_ms: 100,
+        wait_for_prompt: false,
+      });
+      assert.equal(declarationResult.isError, undefined);
+    }
+
+    const session = statefulSessions.get(testCase.pid);
+    assert.equal(
+      session.inputPolicyState.aliases[testCase.alias],
+      testCase.aliasKind,
+    );
+    const sentBeforeBlockedInvocation = statefulSendCalls.get(testCase.pid) ?? 0;
+    assert.equal(sentBeforeBlockedInvocation, testCase.declarations.length);
+
+    const invocationResult = await interactWithProcess({
+      pid: testCase.pid,
+      input: testCase.invocation,
+      timeout_ms: 100,
+      wait_for_prompt: false,
+    });
+    assert.equal(invocationResult.isError, true);
+    assert.match(invocationResult.content[0].text, /immutable policy/i);
+    assert.equal(
+      statefulSendCalls.get(testCase.pid),
+      sentBeforeBlockedInvocation,
+      'blocked stateful invocation must not reach stdin',
+    );
+  }
+
   const nodeSpawn = await interactWithProcess({
     pid: 2147483001,
     input: "require('node:child_process').spawn('codex', ['exec', 'review'])",
@@ -191,5 +272,6 @@ try {
 } finally {
   terminalManager.getSession = originalGetSession;
   terminalManager.executeCommand = originalExecuteCommand;
+  terminalManager.sendInputToProcess = originalSendInputToProcess;
   await configManager.updateConfig(originalConfig);
 }

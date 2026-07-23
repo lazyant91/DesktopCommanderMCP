@@ -30,9 +30,13 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 
 The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. It validates the requested command and shell selection, including an explicit shell override and the configured `defaultShell`, before process creation. Command mode recognizes approved executable names, official package aliases, package-manager global options, common runtime options, shell wrappers, groups, control statements, escapes, and command chains.
 
-Standard Python, Node.js, Deno, and Bun sessions opened directly as REPLs are treated as REPL data. Quoted names and plain prose remain data, but explicit standard process-launch APIs such as Node `child_process`, Python `subprocess`, `Bun.spawn`, and `Deno.Command` are inspected before stdin is written. Runtime path inspection blocks recognized basenames, official package paths, and known entry-point layouts; ordinary project directories named after an agent remain allowed when the actual script target is unrelated.
+Static inline code supplied through Node `-e`, Python `-c`, Bun `-e`, or `deno eval` is inspected with the corresponding runtime grammar. Standard Python, Node.js, Deno, and Bun sessions opened directly as REPLs are treated as REPL data. Quoted names, plain prose, comments, string literals, and regular-expression literals remain data, but explicit standard process-launch APIs such as Node `child_process`, Python `subprocess`, `Bun.spawn`, and `Deno.Command` are inspected before stdin is written.
 
-Policy inspection has bounded recursion and a 64 KiB input-length limit. Oversized or excessively nested inputs, malformed encoded PowerShell payloads, and internal parser failures are denied before execution.
+Static argv arrays and Python tuples are recursively inspected through shell wrappers. Static dot and bracket properties are recognized for covered APIs, Node spawn shell options are inspected, and code expressions inside JavaScript template literals or Python f-strings are tokenized separately from their surrounding text.
+
+Recognized module, function, Bun spawn, and Deno constructor names are retained as bounded session-scoped aliases across successive inputs. Alias state is capped at 64 aliases per owned session and is committed only after stdin accepts the declaration. Runtime path inspection blocks recognized basenames, official package paths, and known entry-point layouts; ordinary project directories named after an agent remain allowed when the actual script target is unrelated.
+
+Policy inspection has bounded recursion, a 64 KiB input-length limit, and the 64 aliases state cap. Oversized or excessively nested inputs, alias-state overflow, malformed encoded PowerShell payloads, and internal parser failures are denied before execution.
 
 Terminal execution remains intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. The immutable policy, file roots, and configurable command filtering are not an operating-system sandbox.
 
@@ -50,7 +54,7 @@ Terminal execution remains intentionally open-ended. A command can invoke anothe
 ## Known limitations
 
 - `allowedDirectories` does not constrain arbitrary terminal commands.
-- The immutable AI agent policy recognizes approved names and common wrappers, not program identity. Renamed binaries, arbitrary custom wrappers, or agent code hidden inside unrelated scripts can evade name-based inspection.
+- The immutable AI agent policy recognizes approved names and common wrappers, not program identity. Renamed binaries, arbitrary custom wrappers, dynamically constructed process targets or arguments, or agent code hidden inside unrelated scripts can evade name-based inspection.
 - Commands executed outside Local MCP and processes started outside server-owned sessions are not affected.
 - The configurable command blocklist remains a guardrail and can be bypassed by unrecognized scripts, aliases, or interpreters.
 - A trusted client can request destructive operations.

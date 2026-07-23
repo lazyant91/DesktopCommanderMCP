@@ -31,6 +31,14 @@ for (const required of [
   'shell override',
   'defaultshell',
   'ordinary project directories',
+  'session-scoped aliases',
+  'static argv',
+  'comments',
+  'string literals',
+  'regular-expression literals',
+  'static inline code',
+  'node spawn shell options',
+  '64 aliases',
   '64 kib',
 ]) {
   assert.ok(combinedDocs.includes(required), `missing documentation phrase: ${required}`);
@@ -50,6 +58,8 @@ assert.match(changelog, /^## \[Unreleased\]/m);
 assert.match(changelog, /immutable local mcp execution policy/i);
 assert.match(changelog, /shell selection/i);
 assert.match(changelog, /process-launch APIs/i);
+assert.match(changelog, /session-scoped aliases/i);
+assert.match(changelog, /static argv/i);
 assert.match(changelog, /repl data/i);
 
 const packageJson = JSON.parse(packageJsonText);
