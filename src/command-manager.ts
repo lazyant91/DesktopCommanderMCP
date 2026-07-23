@@ -1,4 +1,5 @@
 import path from 'path';
+import { evaluateAiAgentInvocation } from './ai-agent-policy.js';
 import {configManager} from './config-manager.js';
 import {capture} from "./utils/capture.js";
 
@@ -226,8 +227,13 @@ class CommandManager {
         }
     }
 
-    async validateCommand(command: string): Promise<boolean> {
+    async validateCommand(command: string, shell?: string): Promise<boolean> {
         try {
+            const immutableDecision = evaluateAiAgentInvocation(command, shell);
+            if (!immutableDecision.allowed) {
+                return false;
+            }
+
             // Get blocked commands from config
             const config = await configManager.getConfig();
             const blockedCommands = config.blockedCommands || [];

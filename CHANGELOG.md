@@ -4,6 +4,19 @@ All notable changes to this fork are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Immutable Local MCP execution policy that blocks recognized local AI agent CLIs across direct process starts, shell selection, package launchers, shell wrappers and control syntax, script runtimes, official package paths, known entry-point layouts, and command chains.
+- Session-aware interactive handling that preserves plain prose, comments, and string literals as REPL data while inspecting explicit standard process-launch APIs in directly opened Python, Node.js, Deno, and Bun REPLs.
+- Bounded session-scoped aliases for recognized REPL process modules, functions, Bun spawn helpers, and Deno command constructors across successive inputs.
+- Recursive inspection of static argv arrays and Python tuples, shell-wrapper argument vectors, static process API properties and Node shell options, JavaScript template expressions, Python f-string expressions, and inline Node/Python/Bun/Deno evaluation code.
+- Validation of explicit `start_process` shell overrides and the configured `defaultShell` before process creation.
+- Narrow runtime-path matching that preserves unrelated scripts inside ordinary project directories named after an agent.
+- Bounded policy parsing with recursion, 64 KiB input-length, and 64 aliases state limits that fail closed on excessive or uninspectable input.
+- Policy enforcement that remains active even when `blockedCommands` is cleared or replaced.
+
 ## [1.0.0] - 2026-07-21
 
 First stable release of the standalone Local MCP Server fork.

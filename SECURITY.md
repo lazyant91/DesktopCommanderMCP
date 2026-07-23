@@ -21,13 +21,24 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Control | Purpose | Security boundary? |
 | --- | --- | --- |
 | `allowedDirectories` | Reduce accidental access by structured file tools | No |
-| Command blocklist | Reject explicitly listed command names | No |
+| Configurable command blocklist | Reject explicitly listed command names | No |
+| Immutable AI agent CLI policy | Reject common direct and wrapped launches of selected local AI agents | Defense in depth, not a sandbox |
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
 | Exact edit matching | Prevent ambiguous text replacements | No |
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
-Terminal execution is intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. File roots and command filtering must not be described as a sandbox.
+The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. It validates the requested command and shell selection, including an explicit shell override and the configured `defaultShell`, before process creation. Command mode recognizes approved executable names, official package aliases, package-manager global options, common runtime options, shell wrappers, groups, control statements, escapes, and command chains.
+
+Static inline code supplied through Node `-e`, Python `-c`, Bun `-e`, or `deno eval` is inspected with the corresponding runtime grammar. Standard Python, Node.js, Deno, and Bun sessions opened directly as REPLs are treated as REPL data. Quoted names, plain prose, comments, string literals, and regular-expression literals remain data, but explicit standard process-launch APIs such as Node `child_process`, Python `subprocess`, `Bun.spawn`, and `Deno.Command` are inspected before stdin is written.
+
+Static argv arrays and Python tuples are recursively inspected through shell wrappers. Static dot and bracket properties are recognized for covered APIs, Node spawn shell options are inspected, and code expressions inside JavaScript template literals or Python f-strings are tokenized separately from their surrounding text.
+
+Recognized module, function, Bun spawn, and Deno constructor names are retained as bounded session-scoped aliases across successive inputs. Alias state is capped at 64 aliases per owned session and is committed only after stdin accepts the declaration. Runtime path inspection blocks recognized basenames, official package paths, and known entry-point layouts; ordinary project directories named after an agent remain allowed when the actual script target is unrelated.
+
+Policy inspection has bounded recursion, a 64 KiB input-length limit, and the 64 aliases state cap. Oversized or excessively nested inputs, alias-state overflow, malformed encoded PowerShell payloads, and internal parser failures are denied before execution.
+
+Terminal execution remains intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. The immutable policy, file roots, and configurable command filtering are not an operating-system sandbox.
 
 ## Recommended operation
 
@@ -43,7 +54,9 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 ## Known limitations
 
 - `allowedDirectories` does not constrain arbitrary terminal commands.
-- Command-name filtering can be bypassed through scripts, aliases, alternate interpreters, absolute paths, or shell composition.
+- The immutable AI agent policy recognizes approved names and common wrappers, not program identity. Renamed binaries, arbitrary custom wrappers, dynamically constructed process targets or arguments, or agent code hidden inside unrelated scripts can evade name-based inspection.
+- Commands executed outside Local MCP and processes started outside server-owned sessions are not affected.
+- The configurable command blocklist remains a guardrail and can be bypassed by unrecognized scripts, aliases, or interpreters.
 - A trusted client can request destructive operations.
 - Tool descriptions and annotations do not enforce user intent.
 - The server does not protect against compromise of the connected client, model account, operating system, or launched command.

@@ -1,4 +1,9 @@
 import { terminalManager, MAX_BUFFERED_OUTPUT_CHARS } from '../terminal-manager.js';
+import {
+  createAiAgentInteractivePolicyState,
+  evaluateAiAgentInteractiveInputWithState,
+  evaluateAiAgentInvocation,
+} from '../ai-agent-policy.js';
 import { commandManager } from '../command-manager.js';
 import {
   StartProcessArgsSchema,
@@ -17,6 +22,27 @@ import {
 import * as os from 'os';
 import { configManager } from '../config-manager.js';
 
+function immutableDecisionError(
+  decision: ReturnType<typeof evaluateAiAgentInvocation>,
+): ServerResult | null {
+  if (decision.allowed) return null;
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Error: Local AI agent CLI execution is disabled by immutable policy (${decision.agent}).`,
+      },
+    ],
+    isError: true,
+  };
+}
+
+function immutablePolicyError(input: string, shell?: string): ServerResult | null {
+  return immutableDecisionError(evaluateAiAgentInvocation(input, shell));
+}
+
+
 /**
  * Start an owned local terminal process.
  * Includes early detection of a process waiting for input.
@@ -30,31 +56,6 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
         {
           type: 'text',
           text: `Error: Invalid arguments for start_process: ${parsed.error}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-
-  try {
-    const commands = commandManager.extractCommands(parsed.data.command).join(', ');
-    capture('server_start_process', {
-      command: commandManager.getBaseCommand(parsed.data.command),
-      commands,
-    });
-  } catch {
-    capture('server_start_process', {
-      command: commandManager.getBaseCommand(parsed.data.command),
-    });
-  }
-
-  const isAllowed = await commandManager.validateCommand(parsed.data.command);
-  if (!isAllowed) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: Command not allowed: ${parsed.data.command}`,
         },
       ],
       isError: true,
@@ -77,6 +78,37 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
         shellUsed = isWindows ? 'cmd.exe' : '/bin/sh';
       }
     }
+  }
+
+  const policyError = immutablePolicyError(parsed.data.command, shellUsed);
+  if (policyError) return policyError;
+
+  const shellPolicyError = immutablePolicyError(shellUsed);
+  if (shellPolicyError) return shellPolicyError;
+
+  try {
+    const commands = commandManager.extractCommands(parsed.data.command).join(', ');
+    capture('server_start_process', {
+      command: commandManager.getBaseCommand(parsed.data.command),
+      commands,
+    });
+  } catch {
+    capture('server_start_process', {
+      command: commandManager.getBaseCommand(parsed.data.command),
+    });
+  }
+
+  const isAllowed = await commandManager.validateCommand(parsed.data.command, shellUsed);
+  if (!isAllowed) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: Command not allowed: ${parsed.data.command}`,
+        },
+      ],
+      isError: true,
+    };
   }
 
   const result = await terminalManager.executeCommand(
@@ -318,6 +350,18 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
       inputLength: input.length,
     });
 
+    // Keep policy evaluation, stdin delivery, and state commit in one synchronous
+    // section so concurrent requests observe the same order as actual REPL input.
+    const session = terminalManager.getSession(pid);
+    const inputPolicyMode = session?.inputPolicyMode ?? 'command';
+    const interactiveEvaluation = evaluateAiAgentInteractiveInputWithState(
+      input,
+      inputPolicyMode,
+      session?.inputPolicyState ?? createAiAgentInteractivePolicyState(),
+    );
+    const policyError = immutableDecisionError(interactiveEvaluation.decision);
+    if (policyError) return policyError;
+
     const outputSnapshot = terminalManager.captureOutputSnapshot(pid);
     const success = terminalManager.sendInputToProcess(pid, input);
 
@@ -332,6 +376,8 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
         isError: true,
       };
     }
+
+    if (session) session.inputPolicyState = interactiveEvaluation.nextState;
 
     if (!wait_for_prompt) {
       exitReason = 'no_wait';

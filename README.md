@@ -177,6 +177,20 @@ Example:
 
 Use `get_config` and `set_config_value` while the server is running. Configuration is isolated from the upstream project's configuration directory.
 
+### Immutable AI agent CLI policy
+
+Local MCP applies an immutable AI agent CLI policy before starting a process and before sending input to an owned interactive session. It inspects both the requested command and the resolved shell selection: an explicit `start_process` shell override and the configured `defaultShell` cannot name or wrap a blocked agent executable. The policy blocks recognized direct and wrapped launches of the `codex`, `opencode`, `claude`, `gemini`, `aider`, and `cursor-agent` commands, including known executable suffixes, official package-launch forms, common shell control syntax, package-manager global options, runtime options, script basenames, official package paths, and known entry-point layouts.
+
+blockedCommands cannot disable this policy. Clearing or replacing the configurable command list does not permit these AI agent CLIs. Shell and unknown sessions use full command inspection. Static inline code supplied through Node `-e`, Python `-c`, Bun `-e`, or `deno eval` uses the same runtime-aware inspection. Sessions opened directly as standard Python, Node.js, Deno, or Bun REPLs are marked as REPL data: quoted agent names, plain prose, comments, string literals, and regular-expression literals remain data, while explicit standard process-launch APIs such as Node `child_process`, Python `subprocess`, `Bun.spawn`, and `Deno.Command` are inspected before stdin is written.
+
+Static argv arrays and Python tuples are recursively checked when they invoke CMD, PowerShell, POSIX shells, package launchers, or blocked executable names. Static dot or bracket property access is recognized for covered process APIs. Node `spawn` and `spawnSync` also inspect a static `shell: true` command or static shell executable. Template-literal and f-string code expressions are inspected without treating their surrounding text as executable code.
+
+The server also retains bounded session-scoped aliases for recognized process modules, imported functions, Bun spawn functions, and Deno command constructors across successive `interact_with_process` calls. Only statically recognizable aliases are recorded, the state is capped at 64 aliases per owned session, and aliases are committed only after the corresponding input is successfully written. Ordinary Git, npm, Node.js, TypeScript, build, test, and REPL workflows remain available when they do not launch a blocked agent.
+
+Runtime path matching is intentionally narrow. A blocked script basename, an official package path, or a known layout such as `codex/bin/index.js` is denied, while ordinary project directories named `codex`, `aider`, or another agent name do not by themselves make unrelated scripts executable targets. Inspection is bounded by a recursion limit, a 64 KiB input-length limit, and the 64 aliases session-state limit. Oversized inputs, excessive wrapper nesting, alias-state overflow, malformed encoded PowerShell payloads, and unexpected parser failures are denied before execution.
+
+This policy is a cost and workflow guardrail, not an operating-system sandbox. Renamed binaries, arbitrary custom wrappers, dynamically constructed process targets or arguments, agent code hidden inside unrelated scripts, commands run outside Local MCP, and processes started outside this server's owned sessions are outside the guarantee. Name-based parsing also cannot model every possible shell grammar or custom forwarding process. Use operating-system accounts, credential separation, network controls, or a virtual machine when stronger enforcement is required.
+
 ## Runtime behavior
 
 ### Terminal sessions

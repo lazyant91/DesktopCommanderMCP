@@ -1,6 +1,13 @@
 import { spawn } from 'child_process';
 import path from 'path';
-import { TerminalSession, CommandExecutionResult, ActiveSession, TimingInfo, OutputEvent } from './types.js';
+import {
+  TerminalSession,
+  CommandExecutionResult,
+  ActiveSession,
+  TimingInfo,
+  OutputEvent,
+  InteractiveInputPolicyMode,
+} from './types.js';
 import { DEFAULT_COMMAND_TIMEOUT } from './config.js';
 import { configManager } from './config-manager.js';
 import {capture} from "./utils/capture.js";
@@ -86,6 +93,109 @@ interface ShellSpawnConfig {
  * Get the appropriate spawn configuration for a given shell
  * This handles login shell flags for different shell types
  */
+function firstRuntimePositional(
+  args: string[],
+  optionsWithValues: ReadonlySet<string>,
+): number {
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '--') return index + 1 < args.length ? index + 1 : -1;
+
+    const equalsIndex = token.indexOf('=');
+    if (equalsIndex > 0 && optionsWithValues.has(token.slice(0, equalsIndex))) {
+      continue;
+    }
+
+    let consumedAttachedValue = false;
+    for (const option of optionsWithValues) {
+      if (/^-[A-Za-z]$/.test(option) && token.startsWith(option) && token.length > option.length) {
+        consumedAttachedValue = true;
+        break;
+      }
+    }
+    if (consumedAttachedValue) continue;
+
+    if (optionsWithValues.has(token)) {
+      index += 1;
+      continue;
+    }
+    if (token.startsWith('-')) continue;
+    return index;
+  }
+  return -1;
+}
+
+export function classifyInteractiveInputPolicy(command: string): InteractiveInputPolicyMode {
+  const tokens = command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  if (tokens.length === 0) return 'command';
+
+  const executableToken = tokens[0]!.replace(/^['"]|['"]$/g, '');
+  const executable = path
+    .basename(executableToken)
+    .toLowerCase()
+    .replace(/\.(?:exe|cmd|bat|com)$/i, '');
+  const args = tokens.slice(1).map((token) => token.replace(/^['"]|['"]$/g, ''));
+  const lowerArgs = args.map((arg) => arg.toLowerCase());
+
+  if (executable === 'cmd') return 'cmd-shell';
+  if (executable === 'powershell' || executable === 'pwsh') {
+    const executesPayload = lowerArgs.some((arg) =>
+      ['-command', '-c', '-commandwithargs', '-file', '-f', '-encodedcommand', '-enc'].includes(arg),
+    );
+    return executesPayload ? 'command' : 'powershell-shell';
+  }
+  if (['bash', 'sh', 'zsh', 'fish'].includes(executable)) {
+    return lowerArgs.some((arg) => /^-[a-z]*c[a-z]*$/i.test(arg))
+      ? 'command'
+      : 'posix-shell';
+  }
+
+  if (['python', 'python3', 'py'].includes(executable)) {
+    if (args.length === 0) return 'python-repl';
+    if (args.some((arg) => arg === '-c' || arg === '-m' || arg.startsWith('-c=') || arg.startsWith('-m='))) {
+      return 'command';
+    }
+    if (args.includes('-i')) return 'python-repl';
+    const scriptIndex = firstRuntimePositional(
+      args,
+      new Set(['-W', '-X', '--check-hash-based-pycs']),
+    );
+    return scriptIndex < 0 ? 'python-repl' : 'command';
+  }
+
+  if (['node', 'nodejs'].includes(executable)) {
+    if (args.length === 0) return 'node-repl';
+    if (args.some((arg) => ['-e', '--eval', '-p', '--print'].includes(arg.split('=')[0]))) {
+      return 'command';
+    }
+    if (args.includes('-i') || args.includes('--interactive')) return 'node-repl';
+    const scriptIndex = firstRuntimePositional(
+      args,
+      new Set([
+        '-r',
+        '--require',
+        '--import',
+        '--loader',
+        '--experimental-loader',
+        '--conditions',
+        '--openssl-config',
+        '--icu-data-dir',
+        '--env-file',
+      ]),
+    );
+    return scriptIndex < 0 ? 'node-repl' : 'command';
+  }
+
+  if (executable === 'deno' && args[0]?.toLowerCase() === 'repl') {
+    return 'deno-repl';
+  }
+  if (executable === 'bun' && args[0]?.toLowerCase() === 'repl') {
+    return 'bun-repl';
+  }
+
+  return 'command';
+}
+
 function getShellSpawnArgs(shellPath: string, command: string): ShellSpawnConfig {
   const shellName = path.basename(shellPath).toLowerCase();
   
@@ -269,6 +379,8 @@ export class TerminalManager {
     const session: TerminalSession = {
       pid: childProcess.pid,
       process: childProcess,
+      inputPolicyMode: classifyInteractiveInputPolicy(enhancedCommand),
+      inputPolicyState: { aliases: {} },
       outputLines: [],           // Line-based buffer
       lastReadIndex: 0,          // Track where "new" output starts
       isBlocked: false,
