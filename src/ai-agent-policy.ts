@@ -64,14 +64,18 @@ function trimTokenPunctuation(value: string): string {
   return stripOuterQuotes(value).replace(/^[({]+/, '').replace(/[)},;]+$/, '');
 }
 
+function removeSimpleShellEscapes(value: string): string {
+  return value.replace(/\^(.)/g, '$1').replace(/`(.)/g, '$1');
+}
+
 function normalizeExecutableToken(token: string): string {
-  const cleaned = trimTokenPunctuation(token).replace(/\\/g, '/');
+  const cleaned = removeSimpleShellEscapes(trimTokenPunctuation(token)).replace(/\\/g, '/');
   const baseName = cleaned.split('/').pop() ?? cleaned;
   return baseName.toLowerCase().replace(EXECUTABLE_SUFFIX, '');
 }
 
 function normalizePackageToken(token: string): string {
-  let cleaned = trimTokenPunctuation(token).toLowerCase();
+  let cleaned = removeSimpleShellEscapes(trimTokenPunctuation(token)).toLowerCase();
   if (cleaned.startsWith('npm:')) cleaned = cleaned.slice(4);
 
   if (cleaned.startsWith('@')) {
@@ -258,7 +262,7 @@ function extractCommandSubstitutions(input: string): string[] {
 function firstNonOptionIndex(tokens: string[], start = 0): number {
   for (let index = start; index < tokens.length; index += 1) {
     if (tokens[index] === '--') return index + 1;
-    if (!tokens[index].startsWith('-') && !tokens[index].startsWith('/')) return index;
+    if (!tokens[index].startsWith('-')) return index;
   }
   return -1;
 }
@@ -268,16 +272,31 @@ function inspectTargetToken(token: string, reason: string): AiAgentPolicyDecisio
   return agent ? blocked(agent, token, reason) : ALLOWED;
 }
 
-function inspectLauncherArguments(tokens: string[], reason: string): AiAgentPolicyDecision {
+function inspectLauncherArguments(
+  tokens: string[],
+  reason: string,
+  depth: number,
+): AiAgentPolicyDecision {
+  const packageOptions = new Set(['-p', '--package']);
+  const commandOptions = new Set(['--call', '-c']);
+  const executableOptions = new Set(['--shell']);
+  const ignoredValueOptions = new Set(['--node-options', '--cache']);
   const optionsWithValues = new Set([
-    '-p',
-    '--package',
-    '--call',
-    '-c',
-    '--shell',
-    '--node-options',
-    '--cache',
+    ...packageOptions,
+    ...commandOptions,
+    ...executableOptions,
+    ...ignoredValueOptions,
   ]);
+
+  const inspectOptionValue = (option: string, value: string): AiAgentPolicyDecision => {
+    if (commandOptions.has(option)) {
+      return evaluateInternal(value, depth + 1);
+    }
+    if (packageOptions.has(option) || executableOptions.has(option)) {
+      return inspectTargetToken(value, reason);
+    }
+    return ALLOWED;
+  };
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -295,7 +314,7 @@ function inspectLauncherArguments(tokens: string[], reason: string): AiAgentPoli
       const option = token.slice(0, equalsIndex).toLowerCase();
       const value = token.slice(equalsIndex + 1);
       if (optionsWithValues.has(option)) {
-        const decision = inspectTargetToken(value, reason);
+        const decision = inspectOptionValue(option, value);
         if (!decision.allowed) return decision;
         continue;
       }
@@ -303,7 +322,7 @@ function inspectLauncherArguments(tokens: string[], reason: string): AiAgentPoli
 
     if (optionsWithValues.has(lower)) {
       if (index + 1 < tokens.length) {
-        const decision = inspectTargetToken(tokens[index + 1], reason);
+        const decision = inspectOptionValue(lower, tokens[index + 1]);
         if (!decision.allowed) return decision;
         index += 1;
       }
@@ -319,12 +338,19 @@ function inspectLauncherArguments(tokens: string[], reason: string): AiAgentPoli
 
 function decodePowerShellCommand(encoded: string): string | null {
   try {
-    const bytes = Buffer.from(stripOuterQuotes(encoded), 'base64');
-    if (bytes.length === 0) return null;
-    const utf16 = bytes.toString('utf16le').replace(/\u0000/g, '').trim();
-    if (utf16) return utf16;
-    const utf8 = bytes.toString('utf8').replace(/\u0000/g, '').trim();
-    return utf8 || null;
+    const normalized = stripOuterQuotes(encoded).replace(/\s+/g, '');
+    if (!normalized || normalized.length % 4 === 1) return null;
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) return null;
+
+    const bytes = Buffer.from(normalized, 'base64');
+    if (bytes.length === 0 || bytes.length % 2 !== 0) return null;
+
+    const sourceWithoutPadding = normalized.replace(/=+$/, '');
+    const decodedWithoutPadding = bytes.toString('base64').replace(/=+$/, '');
+    if (decodedWithoutPadding !== sourceWithoutPadding) return null;
+
+    const command = bytes.toString('utf16le').trim();
+    return command || null;
   } catch {
     return null;
   }
@@ -380,6 +406,19 @@ function inspectPrefixWrapper(tokens: string[], depth: number): AiAgentPolicyDec
   return evaluateInternal(tokens.slice(index).join(' '), depth + 1);
 }
 
+function normalizePowerShellOption(token: string): string {
+  return token.toLowerCase().replace(/^\//, '-');
+}
+
+function matchesPowerShellOption(
+  option: string,
+  fullNames: readonly string[],
+  shortAliases: readonly string[],
+): boolean {
+  if (shortAliases.includes(option)) return true;
+  return option.length >= 4 && fullNames.some((fullName) => fullName.startsWith(option));
+}
+
 function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
   let tokens = tokenize(segment);
   while (tokens.length > 0 && ENV_ASSIGNMENT.test(tokens[0])) tokens = tokens.slice(1);
@@ -402,17 +441,27 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
 
   if (command === 'powershell' || command === 'pwsh') {
     for (let index = 1; index < tokens.length; index += 1) {
-      const option = tokens[index].toLowerCase();
-      if (['-encodedcommand', '-enc'].includes(option)) {
+      const option = normalizePowerShellOption(tokens[index]);
+      if (matchesPowerShellOption(option, ['-encodedcommand'], ['-enc'])) {
         const decoded = index + 1 < tokens.length ? decodePowerShellCommand(tokens[index + 1]) : null;
         return decoded
           ? evaluateInternal(decoded, depth + 1)
           : blocked('unknown', tokens[index], 'uninspectable PowerShell encoded command');
       }
-      if (['-command', '-c'].includes(option) && index + 1 < tokens.length) {
+      if (
+        matchesPowerShellOption(
+          option,
+          ['-command', '-commandwithargs'],
+          ['-c'],
+        ) &&
+        index + 1 < tokens.length
+      ) {
         return evaluateInternal(tokens.slice(index + 1).join(' '), depth + 1);
       }
-      if (['-file', '-f'].includes(option) && index + 1 < tokens.length) {
+      if (
+        matchesPowerShellOption(option, ['-file'], ['-f']) &&
+        index + 1 < tokens.length
+      ) {
         return inspectTargetToken(tokens[index + 1], 'blocked AI agent PowerShell file target');
       }
     }
@@ -457,24 +506,32 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
     return index >= 0 ? evaluateInternal(tokens.slice(index).join(' '), depth + 1) : ALLOWED;
   }
 
-  if (['sudo', 'doas', 'env', 'command', 'nohup', 'setsid', 'runas', 'xargs'].includes(command)) {
+  if (command === 'corepack') {
+    const index = firstNonOptionIndex(tokens, 1);
+    if (index < 0) return ALLOWED;
+    const delegated = tokens.slice(index);
+    delegated[0] = normalizePackageToken(delegated[0]);
+    return evaluateInternal(delegated.join(' '), depth + 1);
+  }
+
+  if (['sudo', 'doas', 'env', 'command', 'exec', 'nohup', 'setsid', 'runas', 'xargs'].includes(command)) {
     return inspectPrefixWrapper(tokens, depth);
   }
 
   if (command === 'npx' || command === 'bunx' || command === 'uvx') {
-    return inspectLauncherArguments(tokens.slice(1), `blocked AI agent ${command} target`);
+    return inspectLauncherArguments(tokens.slice(1), `blocked AI agent ${command} target`, depth);
   }
 
   if (command === 'npm' && ['exec', 'x'].includes(tokens[1]?.toLowerCase())) {
-    return inspectLauncherArguments(tokens.slice(2), 'blocked AI agent npm exec target');
+    return inspectLauncherArguments(tokens.slice(2), 'blocked AI agent npm exec target', depth);
   }
 
   if ((command === 'pnpm' || command === 'yarn') && tokens[1]?.toLowerCase() === 'dlx') {
-    return inspectLauncherArguments(tokens.slice(2), `blocked AI agent ${command} dlx target`);
+    return inspectLauncherArguments(tokens.slice(2), `blocked AI agent ${command} dlx target`, depth);
   }
 
   if (command === 'pipx' && tokens[1]?.toLowerCase() === 'run') {
-    return inspectLauncherArguments(tokens.slice(2), 'blocked AI agent pipx target');
+    return inspectLauncherArguments(tokens.slice(2), 'blocked AI agent pipx target', depth);
   }
 
   if (['node', 'nodejs', 'python', 'python3', 'py', 'bun', 'deno'].includes(command)) {
