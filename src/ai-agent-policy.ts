@@ -374,35 +374,135 @@ function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecisio
   return inspectTargetToken(tokens[index], 'blocked AI agent script runtime target');
 }
 
-function inspectPrefixWrapper(tokens: string[], depth: number): AiAgentPolicyDecision {
-  let index = 1;
-  const command = normalizeExecutableToken(tokens[0]);
+interface OptionValueMatch {
+  value: string;
+  span: number;
+}
 
-  if (command === 'env') {
-    while (index < tokens.length && (tokens[index].startsWith('-') || ENV_ASSIGNMENT.test(tokens[index]))) {
-      index += 1;
-    }
-  } else if (command === 'sudo' || command === 'doas') {
-    const optionsWithValues = new Set(['-u', '--user', '-g', '--group', '-h', '--host', '-p', '--prompt']);
-    while (index < tokens.length) {
-      const token = tokens[index].toLowerCase();
-      if (optionsWithValues.has(token)) {
-        index += 2;
-        continue;
-      }
-      if (token.startsWith('-')) {
-        index += 1;
-        continue;
-      }
-      break;
-    }
-  } else if (command === 'runas') {
-    while (index < tokens.length && tokens[index].startsWith('/')) index += 1;
-  } else if (command === 'xargs') {
-    while (index < tokens.length && tokens[index].startsWith('-')) index += 1;
+function readOptionValue(
+  tokens: string[],
+  index: number,
+  optionsWithValues: ReadonlySet<string>,
+): OptionValueMatch | null {
+  const token = tokens[index];
+  const equalsIndex = token.indexOf('=');
+  if (equalsIndex > 0 && optionsWithValues.has(token.slice(0, equalsIndex))) {
+    return { value: token.slice(equalsIndex + 1), span: 1 };
   }
 
-  if (index >= tokens.length) return ALLOWED;
+  for (const option of optionsWithValues) {
+    if (/^-[A-Za-z]$/.test(option) && token.startsWith(option) && token.length > option.length) {
+      return { value: token.slice(option.length), span: 1 };
+    }
+  }
+
+  if (optionsWithValues.has(token) && index + 1 < tokens.length) {
+    return { value: tokens[index + 1], span: 2 };
+  }
+  return null;
+}
+
+function findDelegatedCommandIndex(
+  tokens: string[],
+  start: number,
+  optionsWithValues: ReadonlySet<string> = new Set(),
+  commandMarkers: ReadonlySet<string> = new Set(),
+  skipAssignments = false,
+): number {
+  let index = start;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    const lower = token.toLowerCase();
+    if (token === '--' || commandMarkers.has(lower)) return index + 1;
+
+    const optionValue = readOptionValue(tokens, index, optionsWithValues);
+    if (optionValue) {
+      index += optionValue.span;
+      continue;
+    }
+    if (token.startsWith('-')) {
+      index += 1;
+      continue;
+    }
+    if (skipAssignments && ENV_ASSIGNMENT.test(token)) {
+      index += 1;
+      continue;
+    }
+    return index;
+  }
+  return -1;
+}
+
+function inspectPrefixWrapper(tokens: string[], depth: number): AiAgentPolicyDecision {
+  const command = normalizeExecutableToken(tokens[0]);
+  let index = 1;
+
+  if (command === 'env') {
+    const commandStringOptions = new Set(['-S', '--split-string']);
+    for (let optionIndex = 1; optionIndex < tokens.length; optionIndex += 1) {
+      const match = readOptionValue(tokens, optionIndex, commandStringOptions);
+      if (!match) continue;
+      const decision = evaluateInternal(match.value, depth + 1);
+      if (!decision.allowed) return decision;
+      optionIndex += match.span - 1;
+    }
+    index = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set(['-u', '--unset', '-C', '--chdir', ...commandStringOptions]),
+      new Set(),
+      true,
+    );
+  } else if (command === 'sudo') {
+    index = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set([
+        '-u', '-U', '--user', '--other-user', '-g', '--group', '-h', '--host',
+        '-p', '--prompt', '-C', '--close-from', '-D', '--chdir', '-R',
+        '--chroot', '-T', '--command-timeout', '-r', '--role', '-t', '--type',
+      ]),
+    );
+  } else if (command === 'doas') {
+    index = findDelegatedCommandIndex(tokens, 1, new Set(['-C', '-u']));
+  } else if (command === 'exec') {
+    index = findDelegatedCommandIndex(tokens, 1, new Set(['-a', '--argv0']));
+  } else if (command === 'xargs') {
+    index = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set([
+        '-a', '--arg-file', '-E', '--eof', '-I', '--replace', '-L',
+        '--max-lines', '-n', '--max-args', '-P', '--max-procs', '-s',
+        '--max-chars', '-d', '--delimiter', '--process-slot-var',
+      ]),
+    );
+  } else if (command === 'time') {
+    index = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set(['-f', '--format', '-o', '--output']),
+    );
+  } else if (command === 'nice') {
+    index = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set(['-n', '--adjustment']),
+    );
+  } else if (command === 'timeout') {
+    const durationIndex = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set(['-s', '--signal', '-k', '--kill-after']),
+    );
+    index = durationIndex >= 0 ? durationIndex + 1 : -1;
+  } else if (command === 'runas') {
+    while (index < tokens.length && tokens[index].startsWith('/')) index += 1;
+  } else {
+    index = findDelegatedCommandIndex(tokens, 1);
+  }
+
+  if (index < 0 || index >= tokens.length) return ALLOWED;
   return evaluateInternal(tokens.slice(index).join(' '), depth + 1);
 }
 
@@ -417,6 +517,84 @@ function matchesPowerShellOption(
 ): boolean {
   if (shortAliases.includes(option)) return true;
   return option.length >= 4 && fullNames.some((fullName) => fullName.startsWith(option));
+}
+
+function isShellCommandOption(token: string): boolean {
+  const lower = token.toLowerCase();
+  if (lower === '--command') return true;
+  if (!/^-[a-z]+$/.test(lower)) return false;
+  const flags = lower.slice(1);
+  return flags.length <= 4 && flags.includes('c');
+}
+
+function readPowerShellOptionValue(
+  tokens: string[],
+  index: number,
+  fullNames: readonly string[],
+  shortAliases: readonly string[] = [],
+): OptionValueMatch | null {
+  const raw = tokens[index];
+  const normalized = normalizePowerShellOption(raw);
+  const separatorIndex = Math.min(
+    ...[':', '=']
+      .map((separator) => normalized.indexOf(separator))
+      .filter((position) => position > 1),
+    Number.POSITIVE_INFINITY,
+  );
+  if (Number.isFinite(separatorIndex)) {
+    const option = normalized.slice(0, separatorIndex);
+    if (matchesPowerShellOption(option, fullNames, shortAliases)) {
+      return { value: raw.slice(separatorIndex + 1), span: 1 };
+    }
+  }
+  if (
+    matchesPowerShellOption(normalized, fullNames, shortAliases) &&
+    index + 1 < tokens.length
+  ) {
+    return { value: tokens[index + 1], span: 2 };
+  }
+  return null;
+}
+
+function inspectStartProcess(tokens: string[]): AiAgentPolicyDecision {
+  const valueOptions = [
+    '-argumentlist',
+    '-credential',
+    '-workingdirectory',
+    '-redirectstandarderror',
+    '-redirectstandardinput',
+    '-redirectstandardoutput',
+    '-verb',
+    '-windowstyle',
+    '-environment',
+  ] as const;
+
+  let index = 1;
+  while (index < tokens.length) {
+    const filePath = readPowerShellOptionValue(
+      tokens,
+      index,
+      ['-filepath'],
+      ['-f', '-fi'],
+    );
+    if (filePath) {
+      return inspectTargetToken(filePath.value, 'blocked AI agent Start-Process target');
+    }
+
+    const optionValue = readPowerShellOptionValue(tokens, index, valueOptions);
+    if (optionValue) {
+      index += optionValue.span;
+      continue;
+    }
+
+    const token = tokens[index];
+    if (token.startsWith('-')) {
+      index += 1;
+      continue;
+    }
+    return inspectTargetToken(token, 'blocked AI agent Start-Process target');
+  }
+  return ALLOWED;
 }
 
 function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
@@ -469,7 +647,7 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
 
   if (['bash', 'sh', 'zsh', 'fish'].includes(command)) {
     const commandIndex = tokens.findIndex(
-      (token, index) => index > 0 && token.startsWith('-') && token.toLowerCase().includes('c'),
+      (token, index) => index > 0 && isShellCommandOption(token),
     );
     if (commandIndex >= 0 && commandIndex + 1 < tokens.length) {
       return evaluateInternal(tokens.slice(commandIndex + 1).join(' '), depth + 1);
@@ -480,15 +658,8 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
     return tokens.length > 1 ? evaluateInternal(tokens.slice(1).join(' '), depth + 1) : ALLOWED;
   }
 
-  if (command === 'start-process') {
-    const filePathIndex = tokens.findIndex((token) => token.toLowerCase() === '-filepath');
-    if (filePathIndex >= 0 && filePathIndex + 1 < tokens.length) {
-      return inspectTargetToken(tokens[filePathIndex + 1], 'blocked AI agent Start-Process target');
-    }
-    const targetIndex = firstNonOptionIndex(tokens, 1);
-    return targetIndex >= 0
-      ? inspectTargetToken(tokens[targetIndex], 'blocked AI agent Start-Process target')
-      : ALLOWED;
+  if (command === 'start-process' || command === 'saps') {
+    return inspectStartProcess(tokens);
   }
 
   if (command === 'call') {
@@ -496,14 +667,24 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
   }
 
   if (command === 'start') {
+    if (tokens[1]?.startsWith('-')) {
+      return inspectStartProcess(tokens);
+    }
     let index = 1;
     while (index < tokens.length && (tokens[index] === '' || tokens[index].startsWith('/'))) index += 1;
     return index < tokens.length ? evaluateInternal(tokens.slice(index).join(' '), depth + 1) : ALLOWED;
   }
 
   if (command === 'wsl') {
-    const index = firstNonOptionIndex(tokens, 1);
-    return index >= 0 ? evaluateInternal(tokens.slice(index).join(' '), depth + 1) : ALLOWED;
+    const index = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set(['-d', '--distribution', '-u', '--user', '--cd', '--shell-type']),
+      new Set(['-e', '--exec']),
+    );
+    return index >= 0 && index < tokens.length
+      ? evaluateInternal(tokens.slice(index).join(' '), depth + 1)
+      : ALLOWED;
   }
 
   if (command === 'corepack') {
@@ -514,7 +695,12 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
     return evaluateInternal(delegated.join(' '), depth + 1);
   }
 
-  if (['sudo', 'doas', 'env', 'command', 'exec', 'nohup', 'setsid', 'runas', 'xargs'].includes(command)) {
+  if (
+    [
+      'sudo', 'doas', 'env', 'command', 'exec', 'nohup', 'setsid',
+      'runas', 'xargs', 'time', 'nice', 'timeout',
+    ].includes(command)
+  ) {
     return inspectPrefixWrapper(tokens, depth);
   }
 
