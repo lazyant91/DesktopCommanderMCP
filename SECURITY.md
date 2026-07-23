@@ -28,7 +28,9 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
-The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. The policy recognizes approved executable names, official package aliases, exact script path segments, common package and runtime options, shell wrappers, groups, escapes, command chains, and command input sent to owned shell sessions. Standard Python, Node.js, Deno, and Bun sessions opened directly as REPLs are treated as REPL data, so quoted names and plain prose are not interpreted as shell commands.
+The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. It validates the requested command and shell selection, including an explicit shell override and the configured `defaultShell`, before process creation. Command mode recognizes approved executable names, official package aliases, package-manager global options, common runtime options, shell wrappers, groups, control statements, escapes, and command chains.
+
+Standard Python, Node.js, Deno, and Bun sessions opened directly as REPLs are treated as REPL data. Quoted names and plain prose remain data, but explicit standard process-launch APIs such as Node `child_process`, Python `subprocess`, `Bun.spawn`, and `Deno.Command` are inspected before stdin is written. Runtime path inspection blocks recognized basenames, official package paths, and known entry-point layouts; ordinary project directories named after an agent remain allowed when the actual script target is unrelated.
 
 Policy inspection has bounded recursion and a 64 KiB input-length limit. Oversized or excessively nested inputs, malformed encoded PowerShell payloads, and internal parser failures are denied before execution.
 

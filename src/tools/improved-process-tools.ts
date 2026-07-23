@@ -1,5 +1,8 @@
 import { terminalManager, MAX_BUFFERED_OUTPUT_CHARS } from '../terminal-manager.js';
-import { evaluateAiAgentInvocation } from '../ai-agent-policy.js';
+import {
+  evaluateAiAgentInteractiveInput,
+  evaluateAiAgentInvocation,
+} from '../ai-agent-policy.js';
 import { commandManager } from '../command-manager.js';
 import {
   StartProcessArgsSchema,
@@ -8,7 +11,7 @@ import {
   ForceTerminateArgsSchema,
 } from './schemas.js';
 import { capture } from '../utils/capture.js';
-import { ServerResult } from '../types.js';
+import { InteractiveInputPolicyMode, ServerResult } from '../types.js';
 import {
   analyzeProcessState,
   cleanProcessOutput,
@@ -18,8 +21,9 @@ import {
 import * as os from 'os';
 import { configManager } from '../config-manager.js';
 
-function immutablePolicyError(input: string): ServerResult | null {
-  const decision = evaluateAiAgentInvocation(input);
+function immutableDecisionError(
+  decision: ReturnType<typeof evaluateAiAgentInvocation>,
+): ServerResult | null {
   if (decision.allowed) return null;
 
   return {
@@ -31,6 +35,17 @@ function immutablePolicyError(input: string): ServerResult | null {
     ],
     isError: true,
   };
+}
+
+function immutablePolicyError(input: string, shell?: string): ServerResult | null {
+  return immutableDecisionError(evaluateAiAgentInvocation(input, shell));
+}
+
+function immutableInteractivePolicyError(
+  input: string,
+  mode: InteractiveInputPolicyMode,
+): ServerResult | null {
+  return immutableDecisionError(evaluateAiAgentInteractiveInput(input, mode));
 }
 
 /**
@@ -46,34 +61,6 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
         {
           type: 'text',
           text: `Error: Invalid arguments for start_process: ${parsed.error}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-
-  const policyError = immutablePolicyError(parsed.data.command);
-  if (policyError) return policyError;
-
-  try {
-    const commands = commandManager.extractCommands(parsed.data.command).join(', ');
-    capture('server_start_process', {
-      command: commandManager.getBaseCommand(parsed.data.command),
-      commands,
-    });
-  } catch {
-    capture('server_start_process', {
-      command: commandManager.getBaseCommand(parsed.data.command),
-    });
-  }
-
-  const isAllowed = await commandManager.validateCommand(parsed.data.command);
-  if (!isAllowed) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: Command not allowed: ${parsed.data.command}`,
         },
       ],
       isError: true,
@@ -96,6 +83,37 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
         shellUsed = isWindows ? 'cmd.exe' : '/bin/sh';
       }
     }
+  }
+
+  const policyError = immutablePolicyError(parsed.data.command, shellUsed);
+  if (policyError) return policyError;
+
+  const shellPolicyError = immutablePolicyError(shellUsed);
+  if (shellPolicyError) return shellPolicyError;
+
+  try {
+    const commands = commandManager.extractCommands(parsed.data.command).join(', ');
+    capture('server_start_process', {
+      command: commandManager.getBaseCommand(parsed.data.command),
+      commands,
+    });
+  } catch {
+    capture('server_start_process', {
+      command: commandManager.getBaseCommand(parsed.data.command),
+    });
+  }
+
+  const isAllowed = await commandManager.validateCommand(parsed.data.command, shellUsed);
+  if (!isAllowed) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: Command not allowed: ${parsed.data.command}`,
+        },
+      ],
+      isError: true,
+    };
   }
 
   const result = await terminalManager.executeCommand(
@@ -319,10 +337,9 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
   } = parsed.data;
 
   const session = terminalManager.getSession(pid);
-  if (session?.inputPolicyMode !== 'data') {
-    const policyError = immutablePolicyError(input);
-    if (policyError) return policyError;
-  }
+  const inputPolicyMode = session?.inputPolicyMode ?? 'command';
+  const policyError = immutableInteractivePolicyError(input, inputPolicyMode);
+  if (policyError) return policyError;
 
   const config = await configManager.getConfig();
   const maxOutputLines = config.fileReadLineLimit ?? 1000;

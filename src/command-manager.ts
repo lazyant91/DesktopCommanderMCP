@@ -227,9 +227,9 @@ class CommandManager {
         }
     }
 
-    async validateCommand(command: string): Promise<boolean> {
+    async validateCommand(command: string, shell?: string): Promise<boolean> {
         try {
-            const immutableDecision = evaluateAiAgentInvocation(command);
+            const immutableDecision = evaluateAiAgentInvocation(command, shell);
             if (!immutableDecision.allowed) {
                 return false;
             }

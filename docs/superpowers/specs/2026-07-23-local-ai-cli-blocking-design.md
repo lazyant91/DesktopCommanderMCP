@@ -47,18 +47,20 @@ A package manager or interpreter is blocked only when its launch target is a kno
 
 ## Detection architecture
 
-Create a focused module at `src/ai-agent-execution-policy.ts` with no configuration dependency.
+Create a focused module at `src/ai-agent-policy.ts` with no configuration dependency.
 
-The module exposes:
+The module exposes pure command and interactive-input evaluators:
 
 ```ts
-export interface AiAgentPolicyDecision {
-  allowed: boolean;
-  matchedIdentity?: string;
-  reason?: string;
-}
+export type AiAgentPolicyDecision =
+  | { allowed: true }
+  | { allowed: false; agent: string; matchedToken: string; reason: string };
 
-export function evaluateAiAgentExecution(command: string): AiAgentPolicyDecision;
+export function evaluateAiAgentInvocation(command: string): AiAgentPolicyDecision;
+export function evaluateAiAgentInteractiveInput(
+  input: string,
+  mode: InteractiveInputPolicyMode,
+): AiAgentPolicyDecision;
 ```
 
 The implementation performs bounded, deterministic command inspection:
@@ -67,23 +69,26 @@ The implementation performs bounded, deterministic command inspection:
 2. Inspect every top-level command in shell chains separated by `;`, `&&`, `||`, `|`, and `&`.
 3. Normalize executable tokens by removing quotes, path prefixes, and known Windows launcher suffixes.
 4. Block direct execution of a known agent identity.
-5. Recognize package-manager launch forms:
+5. Recognize package-manager launch forms even when global options precede the subcommand:
    - `npx [options] <package>`
-   - `npm exec [options] -- <package>`
-   - `pnpm dlx [options] <package>`
-   - `yarn dlx [options] <package>`
-6. Recognize shell-wrapper payloads and recursively inspect their command text:
+   - `npm [global options] exec [options] -- <package>`
+   - `pnpm [global options] dlx [options] <package>`
+   - `yarn [global options] dlx [options] <package>`
+6. Recognize shell-wrapper payloads, groups, common control statements, and recursively inspect their command text:
    - `cmd /c ...`
    - `powershell -Command ...`
-   - `powershell -EncodedCommand ...` only when the Base64 payload can be decoded safely as UTF-16LE or UTF-8; malformed payloads fail closed
+   - `powershell -EncodedCommand ...` only when the Base64 payload can be decoded safely; malformed payloads fail closed
    - `pwsh -Command ...`
-7. Recognize PowerShell launch syntax:
+   - Bash, PowerShell, and CMD grouping and `if` forms
+7. Recognize PowerShell launch syntax and CMD `start` title semantics without conflating them:
    - call operator: `& "C:\path\codex.cmd"`
    - `Start-Process codex`
    - `Start-Process -FilePath "C:\path\claude.exe"`
-8. Recognize known script entry points invoked through `node`, `python`, `python3`, `py`, `bun`, or `deno` when the script basename or path segment is a known agent executable or package identity.
-9. Recursively inspect command substitutions already supported by the command parser where applicable.
-10. Enforce a recursion-depth and input-length limit. Exceeding either limit returns a denied decision so malformed input cannot bypass policy.
+   - PowerShell alias `start "codex" ...`
+8. Recognize known script entry points invoked through `node`, `python`, `python3`, `py`, `bun`, or `deno` from the script basename, an official package path, or a known entry-point layout such as `codex/bin/index.js`. Ordinary project directories named after an agent are not sufficient to block an unrelated script.
+9. Recursively inspect command substitutions and script blocks already supported by the command parser where applicable.
+10. Validate the requested `start_process` shell override and resolved `defaultShell` before process creation.
+11. Enforce a recursion-depth and 64 KiB input-length limit. Exceeding either limit returns a denied decision so malformed input cannot bypass policy.
 
 The policy is deliberately narrower than a general text search. A harmless command such as `rg "codex" README.md` must remain allowed because the matched word is data, not an execution target.
 
@@ -91,9 +96,9 @@ The policy is deliberately narrower than a general text search. A harmless comma
 
 ### `start_process`
 
-`startProcess` evaluates the immutable AI-agent policy before the existing configurable command blocklist.
+`startProcess` evaluates the requested command before the existing configurable command blocklist. After resolving shell selection, it also evaluates an explicit `shell` override or configured `defaultShell` before calling the terminal manager.
 
-When denied, it returns an MCP error without spawning a process:
+When either the command or shell selection is denied, it returns an MCP error without spawning a process:
 
 ```text
 Error: Local AI agent execution is not allowed: <matched identity>
@@ -103,11 +108,11 @@ The existing `blockedCommands` validation remains unchanged for general command 
 
 ### `interact_with_process`
 
-`interactWithProcess` evaluates the exact input before writing it to the owned process stdin.
+`interactWithProcess` evaluates input before writing it to the owned process stdin. Shell and unknown sessions use full command inspection. Directly opened standard Python, Node.js, Deno, and Bun REPL sessions retain a runtime-specific input mode.
 
-When denied, it returns the same class of MCP error and does not call `terminalManager.sendInputToProcess`. This closes the bypass where an agent first opens PowerShell, CMD, Bash, Node REPL, or another interactive process and then submits an AI CLI command.
+When denied, it returns the same class of MCP error and does not call `terminalManager.sendInputToProcess`. In REPL data modes, quoted names and plain prose remain allowed, while explicit standard process-launch APIs are inspected: Node `child_process`, Python `subprocess` and `os.system`, `Bun.spawn`, and `Deno.Command`, including common module aliases and named imports.
 
-Because interactive input may also be ordinary REPL data, the policy blocks only input that parses as a known execution form. Plain prose containing an agent name remains allowed.
+This closes direct REPL process-launch bypasses without treating every agent-name string as a command. Dynamically constructed targets, arbitrary evaluation helpers, and unrelated scripts remain outside the name-based parser's guarantee.
 
 ## Configuration behavior
 
@@ -116,6 +121,7 @@ No new user-editable setting is added.
 - `blockedCommands` continues to control the existing configurable blocklist.
 - The immutable AI-agent list is not returned as a configurable value.
 - `set_config_value` cannot disable or replace the AI-agent policy.
+- A `defaultShell` value is inspected at process-start time, so storing a blocked executable cannot bypass the immutable rule.
 - Resetting configuration cannot disable the AI-agent policy.
 
 This avoids presenting a security control that an MCP-connected agent can remove using the same MCP server.
@@ -130,7 +136,7 @@ Unexpected internal policy errors deny execution and return a sanitized reason. 
 
 Use test-driven development. Each behavior is first represented by a failing test and observed failing before production code is added.
 
-Create `test/test-ai-agent-execution-policy.js` to cover the pure policy module and add focused handler coverage for both MCP process tools.
+Use `test/test-ai-agent-policy.js` for command parsing, `test/test-ai-agent-interactive-policy.js` for runtime-specific REPL data, and focused handler coverage for both MCP process tools.
 
 Required blocked cases:
 
@@ -138,21 +144,25 @@ Required blocked cases:
 - `.exe`, `.cmd`, `.bat`, and `.ps1` variants.
 - Quoted absolute Windows and Unix paths.
 - Mixed case.
-- Commands embedded in shell chains.
-- `npx`, `npm exec`, `pnpm dlx`, and `yarn dlx` package launches.
+- Commands embedded in shell chains, groups, and common `if` control statements.
+- `npx`, `npm exec`, `pnpm dlx`, and `yarn dlx` package launches, including global options before subcommands.
 - `cmd /c`, PowerShell, and pwsh wrapper payloads.
-- PowerShell call operator and `Start-Process` forms.
-- Known JavaScript or Python entry-point paths passed to an interpreter.
-- An AI CLI command sent through `interact_with_process`.
+- PowerShell call operator, `Start-Process`, `saps`, and positional `start` forms while preserving CMD title semantics.
+- Known JavaScript or Python entry-point basenames, official package paths, and known entry-point layouts passed to an interpreter.
+- Bun and Deno runtime options before a blocked `run` target.
+- A blocked executable supplied as an explicit `start_process` shell override or configured `defaultShell`.
+- Direct Node, Python, Bun, and Deno REPL process-launch APIs sent through `interact_with_process`.
 - AI blocking while `blockedCommands` is empty.
-- Malformed or excessive recursive wrapper input fails closed.
+- Malformed, oversized, or excessive recursive wrapper input fails closed.
 
 Required allowed cases:
 
 - Git, npm scripts, TypeScript, ESLint, Prettier, and ordinary Node scripts.
 - Package-manager launches of non-agent packages.
 - Search, echo, and file operations where an agent name is only data.
-- Ordinary interactive REPL input and prose mentioning agent names.
+- Ordinary project directories named after an agent when the actual script is unrelated.
+- CMD `start` window titles containing an agent name when the launched command is harmless.
+- Ordinary interactive REPL input, prose mentioning agent names, and process-launch APIs targeting non-agent tools.
 - Existing configurable `blockedCommands` behavior.
 
 Run the focused policy tests, complete unit suite, clean TypeScript build, and integration suite before opening the pull request.

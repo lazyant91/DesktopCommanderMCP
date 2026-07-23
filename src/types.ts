@@ -13,7 +13,15 @@ export interface ProcessInfo {
   memory: string;
 }
 
-export type InteractiveInputPolicyMode = 'command' | 'data';
+export type InteractiveInputPolicyMode =
+  | 'command'
+  | 'cmd-shell'
+  | 'powershell-shell'
+  | 'posix-shell'
+  | 'python-repl'
+  | 'node-repl'
+  | 'deno-repl'
+  | 'bun-repl';
 
 export interface TerminalSession {
   pid: number;

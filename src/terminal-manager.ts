@@ -135,26 +135,40 @@ export function classifyInteractiveInputPolicy(command: string): InteractiveInpu
     .toLowerCase()
     .replace(/\.(?:exe|cmd|bat|com)$/i, '');
   const args = tokens.slice(1).map((token) => token.replace(/^['"]|['"]$/g, ''));
+  const lowerArgs = args.map((arg) => arg.toLowerCase());
+
+  if (executable === 'cmd') return 'cmd-shell';
+  if (executable === 'powershell' || executable === 'pwsh') {
+    const executesPayload = lowerArgs.some((arg) =>
+      ['-command', '-c', '-commandwithargs', '-file', '-f', '-encodedcommand', '-enc'].includes(arg),
+    );
+    return executesPayload ? 'command' : 'powershell-shell';
+  }
+  if (['bash', 'sh', 'zsh', 'fish'].includes(executable)) {
+    return lowerArgs.some((arg) => /^-[a-z]*c[a-z]*$/i.test(arg))
+      ? 'command'
+      : 'posix-shell';
+  }
 
   if (['python', 'python3', 'py'].includes(executable)) {
-    if (args.length === 0) return 'data';
+    if (args.length === 0) return 'python-repl';
     if (args.some((arg) => arg === '-c' || arg === '-m' || arg.startsWith('-c=') || arg.startsWith('-m='))) {
       return 'command';
     }
-    if (args.includes('-i')) return 'data';
+    if (args.includes('-i')) return 'python-repl';
     const scriptIndex = firstRuntimePositional(
       args,
       new Set(['-W', '-X', '--check-hash-based-pycs']),
     );
-    return scriptIndex < 0 ? 'data' : 'command';
+    return scriptIndex < 0 ? 'python-repl' : 'command';
   }
 
   if (['node', 'nodejs'].includes(executable)) {
-    if (args.length === 0) return 'data';
+    if (args.length === 0) return 'node-repl';
     if (args.some((arg) => ['-e', '--eval', '-p', '--print'].includes(arg.split('=')[0]))) {
       return 'command';
     }
-    if (args.includes('-i') || args.includes('--interactive')) return 'data';
+    if (args.includes('-i') || args.includes('--interactive')) return 'node-repl';
     const scriptIndex = firstRuntimePositional(
       args,
       new Set([
@@ -169,11 +183,14 @@ export function classifyInteractiveInputPolicy(command: string): InteractiveInpu
         '--env-file',
       ]),
     );
-    return scriptIndex < 0 ? 'data' : 'command';
+    return scriptIndex < 0 ? 'node-repl' : 'command';
   }
 
-  if ((executable === 'deno' || executable === 'bun') && args[0]?.toLowerCase() === 'repl') {
-    return 'data';
+  if (executable === 'deno' && args[0]?.toLowerCase() === 'repl') {
+    return 'deno-repl';
+  }
+  if (executable === 'bun' && args[0]?.toLowerCase() === 'repl') {
+    return 'bun-repl';
   }
 
   return 'command';
