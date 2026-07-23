@@ -14,6 +14,7 @@ const blocked = [
   ['npm exec --package @google/gemini-cli -- gemini', 'gemini'],
   ['npm exec --call "codex exec review"', 'codex'],
   ['npm exec --call="claude -p review"', 'claude'],
+  ['npm exec --workspace app -- @openai/codex', 'codex'],
   ['npx -c "opencode run review"', 'opencode'],
   ['pnpm dlx opencode-ai run review', 'opencode'],
   ['yarn dlx @google/gemini-cli', 'gemini'],
@@ -24,13 +25,17 @@ const blocked = [
   ['uvx aider-chat', 'aider'],
   ['python -m aider', 'aider'],
   ['python C:\\tools\\aider.py', 'aider'],
+  ['python -W ignore C:\\tools\\aider.py', 'aider'],
   ['node C:\\tools\\codex.js exec', 'codex'],
+  ['node --require ./hook.js C:\\tools\\codex.js exec review', 'codex'],
+  ['node C:\\tools\\codex\\bin\\index.js exec review', 'codex'],
   ['cmd /c "codex exec review"', 'codex'],
   ['cmd /c c^o^d^e^x exec review', 'codex'],
   ['cmd /c npx @openai/co^dex exec review', 'codex'],
   ['cmd.exe /k claude -p review', 'claude'],
   ['call codex exec review', 'codex'],
   ['start "" claude -p review', 'claude'],
+  ['cmd /c start "review window" codex exec review', 'codex'],
   ['powershell -Command "claude -p review"', 'claude'],
   ['powershell -Com "codex exec review"', 'codex'],
   ['pwsh -c "gemini -p review"', 'gemini'],
@@ -39,7 +44,11 @@ const blocked = [
   [`powershell -EncodedCommand ${encodedCodex}`, 'codex'],
   ['powershell -EncodedCommand !!!not-base64!!!', 'unknown'],
   ['bash -lc "codex exec review"', 'codex'],
+  ['bash -lc "co\\dex exec review"', 'codex'],
   ['bash --norc -lc "codex exec review"', 'codex'],
+  ['bash -lc "{ codex exec review; }"', 'codex'],
+  ['powershell -Command "& { codex exec review }"', 'codex'],
+  ['cmd /c "( codex exec review )"', 'codex'],
   ['bash -lc "exec gemini -p review"', 'gemini'],
   ['exec codex exec review', 'codex'],
   ['sh -c "claude -p review"', 'claude'],
@@ -95,16 +104,24 @@ const allowed = [
   'npm exec -- eslint .',
   'npm x eslint .',
   'npm exec --call "echo codex"',
+  'npm exec --workspace codex -- eslint .',
   'npx --node-options codex eslint .',
   'npx tsc --noEmit',
   'node dist/index.js',
+  'node --require codex dist/index.js',
+  'node C:\\tools\\codex-notes\\bin\\index.js',
   'python -m pytest',
+  'python -W codex C:\\tools\\runner.py',
   'echo codex',
   'Write-Output "claude"',
   'Get-Content .\\docs\\codex-notes.md',
   'npm view @openai/codex version',
   'npm install @anthropic-ai/claude-code --save-dev',
   'cmd /c "echo codex"',
+  'cmd /c "( echo codex )"',
+  'cmd /c start "review window" echo codex',
+  'bash -lc "{ echo codex; }"',
+  'powershell -Command "& { Write-Output codex }"',
   'bash --rcfile codex init.sh',
   'env -u codex npm test',
   'exec -a codex npm test',
@@ -121,6 +138,13 @@ const allowed = [
 for (const command of allowed) {
   const decision = evaluateAiAgentInvocation(command);
   assert.equal(decision.allowed, true, `expected allowed: ${command}`);
+}
+
+const oversized = evaluateAiAgentInvocation(`echo ${'x'.repeat(100_000)}`);
+assert.equal(oversized.allowed, false, 'oversized policy input must fail closed');
+if (!oversized.allowed) {
+  assert.equal(oversized.agent, 'unknown');
+  assert.match(oversized.reason, /input length/i);
 }
 
 console.log(`Immutable AI agent policy passed (${blocked.length} blocked, ${allowed.length} allowed)`);

@@ -179,11 +179,13 @@ Use `get_config` and `set_config_value` while the server is running. Configurati
 
 ### Immutable AI agent CLI policy
 
-Local MCP applies an immutable AI agent CLI policy before starting a process and before sending input to an owned interactive process. It blocks direct and commonly wrapped launches of the `codex`, `opencode`, `claude`, `gemini`, `aider`, and `cursor-agent` commands, including their usual executable suffixes and official package-launch forms such as `npx @openai/codex`, `npm exec @anthropic-ai/claude-code`, `pnpm dlx opencode-ai`, and `yarn dlx @google/gemini-cli`.
+Local MCP applies an immutable AI agent CLI policy before starting a process and before sending command input to an owned interactive session. It blocks recognized direct and wrapped launches of the `codex`, `opencode`, `claude`, `gemini`, `aider`, and `cursor-agent` commands, including known executable suffixes, official package-launch forms, exact script path segments, shell groups and escapes, and common launcher or runtime options.
 
-blockedCommands cannot disable this policy. Clearing or replacing the configurable command list does not permit these AI agent CLIs. The policy also inspects common shell wrappers, package launchers, script runtimes, command chains, and `interact_with_process` input. Ordinary Git, npm, Node.js, TypeScript, build, and test commands remain available when they do not launch a blocked agent.
+blockedCommands cannot disable this policy. Clearing or replacing the configurable command list does not permit these AI agent CLIs. Shell and unknown sessions continue to treat interactive input as commands. Sessions opened directly as standard Python, Node.js, Deno, or Bun REPLs are marked as REPL data instead, so quoted agent names and plain prose are not parsed as shell commands. Ordinary Git, npm, Node.js, TypeScript, build, test, and REPL workflows remain available when they do not launch a blocked agent.
 
-This policy is a cost and workflow guardrail, not an operating-system sandbox. Renamed binaries, arbitrary custom wrappers, agent code hidden inside unrelated scripts, commands run outside Local MCP, and processes started outside this server's owned sessions are outside the guarantee. Use operating-system accounts, credential separation, network controls, or a virtual machine when stronger enforcement is required.
+Inspection is bounded by a recursion limit and a 64 KiB input-length limit. Oversized inputs, excessive wrapper nesting, malformed encoded PowerShell payloads, and unexpected parser failures are denied before execution.
+
+This policy is a cost and workflow guardrail, not an operating-system sandbox. Renamed binaries, arbitrary custom wrappers, agent code hidden inside unrelated scripts, commands run outside Local MCP, and processes started outside this server's owned sessions are outside the guarantee. Name-based parsing also cannot model every possible shell grammar or custom forwarding process. Use operating-system accounts, credential separation, network controls, or a virtual machine when stronger enforcement is required.
 
 ## Runtime behavior
 

@@ -318,8 +318,11 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
     verbose_timing = false,
   } = parsed.data;
 
-  const policyError = immutablePolicyError(input);
-  if (policyError) return policyError;
+  const session = terminalManager.getSession(pid);
+  if (session?.inputPolicyMode !== 'data') {
+    const policyError = immutablePolicyError(input);
+    if (policyError) return policyError;
+  }
 
   const config = await configManager.getConfig();
   const maxOutputLines = config.fileReadLineLimit ?? 1000;

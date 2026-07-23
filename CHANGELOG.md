@@ -8,7 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- Immutable Local MCP execution policy that blocks common local AI agent CLIs across direct process starts, package launchers, shell wrappers, script runtimes, command chains, and interactive process input.
+- Immutable Local MCP execution policy that blocks recognized local AI agent CLIs across direct process starts, package launchers, shell wrappers, shell groups and escapes, script runtimes, exact script path segments, command chains, and owned shell-session input.
+- Session-aware interactive handling that preserves plain prose and quoted names as REPL data in directly opened standard Python, Node.js, Deno, and Bun REPLs.
+- Bounded policy parsing with recursion and 64 KiB input-length limits that fail closed on excessive or uninspectable input.
 - Policy enforcement that remains active even when `blockedCommands` is cleared or replaced.
 
 ## [1.0.0] - 2026-07-21

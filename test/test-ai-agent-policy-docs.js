@@ -21,6 +21,9 @@ for (const required of [
   'cursor-agent',
   'renamed binaries',
   'outside local mcp',
+  'repl data',
+  'plain prose',
+  '64 kib',
 ]) {
   assert.ok(combinedDocs.includes(required), `missing documentation phrase: ${required}`);
 }
@@ -37,7 +40,8 @@ for (const required of [
 
 assert.match(changelog, /^## \[Unreleased\]/m);
 assert.match(changelog, /immutable local mcp execution policy/i);
-assert.match(changelog, /interactive process input/i);
+assert.match(changelog, /owned shell-session input/i);
+assert.match(changelog, /repl data/i);
 
 const packageJson = JSON.parse(packageJsonText);
 assert.equal(packageJson.version, '1.0.0', 'feature must not change the package version');

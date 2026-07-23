@@ -17,6 +17,7 @@ export const IMMUTABLE_BLOCKED_AI_AGENTS = [
 ] as const;
 
 const MAX_WRAPPER_DEPTH = 8;
+export const MAX_AI_AGENT_POLICY_INPUT_LENGTH = 64 * 1024;
 const ALLOWED: AiAgentPolicyDecision = { allowed: true };
 
 const EXECUTABLE_ALIASES = new Map<string, string>([
@@ -68,10 +69,26 @@ function removeSimpleShellEscapes(value: string): string {
   return value.replace(/\^(.)/g, '$1').replace(/`(.)/g, '$1');
 }
 
-function normalizeExecutableToken(token: string): string {
-  const cleaned = removeSimpleShellEscapes(trimTokenPunctuation(token)).replace(/\\/g, '/');
-  const baseName = cleaned.split('/').pop() ?? cleaned;
+function normalizeExecutableValue(value: string): string {
+  const pathNormalized = value.replace(/\\/g, '/');
+  const baseName = pathNormalized.split('/').pop() ?? pathNormalized;
   return baseName.toLowerCase().replace(EXECUTABLE_SUFFIX, '');
+}
+
+function normalizedExecutableCandidates(token: string): string[] {
+  const cleaned = removeSimpleShellEscapes(trimTokenPunctuation(token));
+  const candidates = new Set<string>([normalizeExecutableValue(cleaned)]);
+  const isAbsoluteWindowsPath = /^[A-Za-z]:[\\/]/.test(cleaned) || cleaned.startsWith('\\\\');
+
+  if (!isAbsoluteWindowsPath && cleaned.includes('\\')) {
+    candidates.add(normalizeExecutableValue(cleaned.replace(/\\(.)/g, '$1')));
+  }
+
+  return [...candidates];
+}
+
+function normalizeExecutableToken(token: string): string {
+  return normalizedExecutableCandidates(token)[0] ?? '';
 }
 
 function normalizePackageToken(token: string): string {
@@ -92,7 +109,11 @@ function normalizePackageToken(token: string): string {
 }
 
 function agentFromExecutable(token: string): string | undefined {
-  return EXECUTABLE_ALIASES.get(normalizeExecutableToken(token));
+  for (const candidate of normalizedExecutableCandidates(token)) {
+    const agent = EXECUTABLE_ALIASES.get(candidate);
+    if (agent) return agent;
+  }
+  return undefined;
 }
 
 function agentFromPackage(token: string): string | undefined {
@@ -267,8 +288,37 @@ function firstNonOptionIndex(tokens: string[], start = 0): number {
   return -1;
 }
 
+function agentFromPathSegments(token: string): string | undefined {
+  const cleaned = removeSimpleShellEscapes(trimTokenPunctuation(token)).replace(/\\/g, '/');
+  const segments = cleaned.split('/').filter(Boolean);
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const executable = EXECUTABLE_ALIASES.get(
+      segments[index].toLowerCase().replace(EXECUTABLE_SUFFIX, ''),
+    );
+    if (executable) return executable;
+
+    if (segments[index].startsWith('@') && index + 1 < segments.length) {
+      const packageAgent = PACKAGE_ALIASES.get(
+        normalizePackageToken(`${segments[index]}/${segments[index + 1]}`),
+      );
+      if (packageAgent) return packageAgent;
+    }
+  }
+
+  return undefined;
+}
+
 function inspectTargetToken(token: string, reason: string): AiAgentPolicyDecision {
   const agent = agentFromPackage(token) ?? agentFromExecutable(token);
+  return agent ? blocked(agent, token, reason) : ALLOWED;
+}
+
+function inspectRuntimeTargetToken(token: string, reason: string): AiAgentPolicyDecision {
+  const agent =
+    agentFromPackage(token) ??
+    agentFromExecutable(token) ??
+    agentFromPathSegments(token);
   return agent ? blocked(agent, token, reason) : ALLOWED;
 }
 
@@ -280,7 +330,17 @@ function inspectLauncherArguments(
   const packageOptions = new Set(['-p', '--package']);
   const commandOptions = new Set(['--call', '-c']);
   const executableOptions = new Set(['--shell']);
-  const ignoredValueOptions = new Set(['--node-options', '--cache']);
+  const ignoredValueOptions = new Set([
+    '--node-options',
+    '--cache',
+    '--workspace',
+    '-w',
+    '--prefix',
+    '--userconfig',
+    '--registry',
+    '--script-shell',
+    '--loglevel',
+  ]);
   const optionsWithValues = new Set([
     ...packageOptions,
     ...commandOptions,
@@ -358,11 +418,51 @@ function decodePowerShellCommand(encoded: string): string | null {
 
 function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecision {
   if (runtime === 'python' || runtime === 'python3' || runtime === 'py') {
-    const moduleIndex = tokens.findIndex((token, index) => index > 0 && token === '-m');
-    if (moduleIndex >= 0 && moduleIndex + 1 < tokens.length) {
-      const moduleName = tokens[moduleIndex + 1].split('.')[0].replace(/_/g, '-');
-      return inspectTargetToken(moduleName, 'blocked AI agent Python module');
+    for (let index = 1; index < tokens.length; index += 1) {
+      const module = readOptionValue(tokens, index, new Set(['-m']));
+      if (module) {
+        const moduleName = module.value.split('.')[0].replace(/_/g, '-');
+        return inspectRuntimeTargetToken(moduleName, 'blocked AI agent Python module');
+      }
+      if (tokens[index] === '-c' || tokens[index].startsWith('-c=')) return ALLOWED;
     }
+
+    const scriptIndex = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set(['-W', '-X', '--check-hash-based-pycs']),
+    );
+    return scriptIndex >= 0 && scriptIndex < tokens.length
+      ? inspectRuntimeTargetToken(tokens[scriptIndex], 'blocked AI agent script runtime target')
+      : ALLOWED;
+  }
+
+  if (runtime === 'node' || runtime === 'nodejs') {
+    if (
+      tokens.slice(1).some((token) =>
+        ['-e', '--eval', '-p', '--print'].includes(token.split('=')[0]),
+      )
+    ) {
+      return ALLOWED;
+    }
+    const scriptIndex = findDelegatedCommandIndex(
+      tokens,
+      1,
+      new Set([
+        '-r',
+        '--require',
+        '--import',
+        '--loader',
+        '--experimental-loader',
+        '--conditions',
+        '--openssl-config',
+        '--icu-data-dir',
+        '--env-file',
+      ]),
+    );
+    return scriptIndex >= 0 && scriptIndex < tokens.length
+      ? inspectRuntimeTargetToken(tokens[scriptIndex], 'blocked AI agent script runtime target')
+      : ALLOWED;
   }
 
   let index = firstNonOptionIndex(tokens, 1);
@@ -371,7 +471,7 @@ function inspectRuntime(tokens: string[], runtime: string): AiAgentPolicyDecisio
     index = firstNonOptionIndex(tokens, index + 1);
   }
   if (index < 0) return ALLOWED;
-  return inspectTargetToken(tokens[index], 'blocked AI agent script runtime target');
+  return inspectRuntimeTargetToken(tokens[index], 'blocked AI agent script runtime target');
 }
 
 interface OptionValueMatch {
@@ -597,10 +697,22 @@ function inspectStartProcess(tokens: string[]): AiAgentPolicyDecision {
   return ALLOWED;
 }
 
+function extractCmdWrapperPayload(segment: string): string | null {
+  const match = segment.match(
+    /^\s*(?:"[^"]*"|\S+)(?:\s+\/[^\s]+)*\s+\/[ck]\s+([\s\S]+)$/i,
+  );
+  return match?.[1] ? stripOuterQuotes(match[1]) : null;
+}
+
+function extractCmdStartPayload(segment: string): string | null {
+  const match = segment.match(/^\s*start(?:\.exe)?\s+"(?:[^"]|"")*"\s+([\s\S]+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
   let tokens = tokenize(segment);
   while (tokens.length > 0 && ENV_ASSIGNMENT.test(tokens[0])) tokens = tokens.slice(1);
-  while (tokens[0] === '&' || tokens[0] === '.') tokens = tokens.slice(1);
+  while (['&', '.', '{', '('].includes(tokens[0])) tokens = tokens.slice(1);
   if (tokens.length === 0) return ALLOWED;
 
   const directAgent = agentFromExecutable(tokens[0]);
@@ -611,6 +723,10 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
   const command = normalizeExecutableToken(tokens[0]);
 
   if (command === 'cmd') {
+    const rawPayload = extractCmdWrapperPayload(segment);
+    if (rawPayload) {
+      return evaluateInternal(rawPayload, depth + 1);
+    }
     const switchIndex = tokens.findIndex((token) => ['/c', '/k'].includes(token.toLowerCase()));
     if (switchIndex >= 0 && switchIndex + 1 < tokens.length) {
       return evaluateInternal(tokens.slice(switchIndex + 1).join(' '), depth + 1);
@@ -670,6 +786,10 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
     if (tokens[1]?.startsWith('-')) {
       return inspectStartProcess(tokens);
     }
+    const titledPayload = extractCmdStartPayload(segment);
+    if (titledPayload) {
+      return evaluateInternal(titledPayload, depth + 1);
+    }
     let index = 1;
     while (index < tokens.length && (tokens[index] === '' || tokens[index].startsWith('/'))) index += 1;
     return index < tokens.length ? evaluateInternal(tokens.slice(index).join(' '), depth + 1) : ALLOWED;
@@ -728,6 +848,9 @@ function inspectSegment(segment: string, depth: number): AiAgentPolicyDecision {
 }
 
 function evaluateInternal(input: string, depth: number): AiAgentPolicyDecision {
+  if (input.length > MAX_AI_AGENT_POLICY_INPUT_LENGTH) {
+    return blocked('unknown', '<input-length>', 'AI agent policy input length exceeded');
+  }
   if (!input.trim()) return ALLOWED;
   if (depth > MAX_WRAPPER_DEPTH) {
     return blocked('unknown', '<wrapper-depth>', 'AI agent policy wrapper depth exceeded');

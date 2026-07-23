@@ -13,9 +13,12 @@ export interface ProcessInfo {
   memory: string;
 }
 
+export type InteractiveInputPolicyMode = 'command' | 'data';
+
 export interface TerminalSession {
   pid: number;
   process: ChildProcess;
+  inputPolicyMode: InteractiveInputPolicyMode;
   outputLines: string[];      // Line-based buffer (persistent, capped — oldest lines evicted)
   lastReadIndex: number;      // Track where "new" output starts for default reads
   isBlocked: boolean;

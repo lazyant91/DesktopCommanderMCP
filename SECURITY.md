@@ -28,7 +28,9 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
-The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. The policy covers the approved agent executable names, official package aliases, common package launchers, shell wrappers, script runtimes, command chains, and interactive process input. It is intended to prevent accidental use of local model quotas and unauthorized subagent workflows.
+The immutable AI agent CLI policy is evaluated independently of `blockedCommands`; `blockedCommands` cannot disable it. The policy recognizes approved executable names, official package aliases, exact script path segments, common package and runtime options, shell wrappers, groups, escapes, command chains, and command input sent to owned shell sessions. Standard Python, Node.js, Deno, and Bun sessions opened directly as REPLs are treated as REPL data, so quoted names and plain prose are not interpreted as shell commands.
+
+Policy inspection has bounded recursion and a 64 KiB input-length limit. Oversized or excessively nested inputs, malformed encoded PowerShell payloads, and internal parser failures are denied before execution.
 
 Terminal execution remains intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. The immutable policy, file roots, and configurable command filtering are not an operating-system sandbox.
 
