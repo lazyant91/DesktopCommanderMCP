@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - Added a Codex CLI reminder for Remote and Local MCP workflows that refuses ordinary recognizable local Codex launches before execution and directs web ChatGPT workflows to continue through Inline Execution; because process calls carry no trusted origin metadata, the refusal applies to every matching Local MCP process-tool call.
 - Added bounded interactive-session recognition for first-token CMD `/c` or `/k` host mode, PowerShell/pwsh option values and exact `-Command -`/`-File -` stdin forms, plus bash/sh/zsh exact `-s` stdin mode with script arguments.
-- Corrected bounded command segmentation so a Windows path backslash or CMD single-quote usage cannot hide a later `;`, `|`, `&`, LF, or CRLF command boundary, recognized one leading CMD echo-control `@` in attached or standalone-token form, matched exact `@openai/codex@<version-or-dist-tag>` package specs, and accepted the standard `npx --` option terminator.
+- Corrected bounded command segmentation so a Windows path backslash or CMD single-quote usage cannot hide a later `;`, `|`, `&`, LF, or CRLF command boundary, recognized one leading CMD echo-control `@` in attached or standalone-token form for launch detection and shell-session classification, matched exact `@openai/codex@<version-or-dist-tag>` package specs, and accepted the standard `npx --` option terminator.
 - Added reusable project instructions and a marked `AGENTS.md` scope block that human-direct local Codex sessions can skip.
 
 ### Security

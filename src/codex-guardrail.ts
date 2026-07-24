@@ -142,6 +142,10 @@ function tokenize(command: string): string[] {
   return tokens;
 }
 
+function stripStandaloneCmdEchoPrefix(tokens: string[]): string[] {
+  return tokens[0] === '@' ? tokens.slice(1) : tokens;
+}
+
 function isOfficialCodexPackageSpec(value: string | undefined): boolean {
   if (!value) return false;
   const normalized = value.toLowerCase();
@@ -173,7 +177,7 @@ function isOfficialPackageLaunch(tokens: string[]): boolean {
 export function detectCodexCliLaunch(command: string): CodexGuardrailDecision {
   for (const segment of splitCommandSegments(command)) {
     const tokens = tokenize(segment);
-    const launchTokens = tokens[0] === '@' ? tokens.slice(1) : tokens;
+    const launchTokens = stripStandaloneCmdEchoPrefix(tokens);
     if (launchTokens.length === 0) continue;
 
     if (isCodexExecutable(launchTokens[0])) {
@@ -189,7 +193,7 @@ export function detectCodexCliLaunch(command: string): CodexGuardrailDecision {
 }
 
 export function classifyTerminalSession(command: string): TerminalSessionKind {
-  const tokens = tokenize(command.trim());
+  const tokens = stripStandaloneCmdEchoPrefix(tokenize(command.trim()));
   if (tokens.length === 0) return 'other';
 
   const shell = normalizedExecutableName(tokens[0]);

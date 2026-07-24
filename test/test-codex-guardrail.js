@@ -44,7 +44,8 @@ for (const executable of ['node', 'codex-helper', 'my-codex.cmd', 'C:\\projects\
 }
 for (const command of [
   'cmd', 'cmd.exe /d /q', 'cmd.exe /k', 'cmd.exe /k echo ready',
-  'cmd.exe /k echo ready /c',
+  'cmd.exe /k echo ready /c', '@ cmd.exe /k echo ready',
+  '@ powershell.exe -NoLogo', '@ pwsh -NoLogo',
   'powershell -NoLogo', 'powershell.exe -NoExit -Command "Write-Host ready"',
   'powershell.exe -Command -', 'powershell.exe -File -', 'powershell.exe -c -',
   'powershell.exe -ExecutionPolicy Bypass', 'powershell.exe -NoLogo -ExecutionPolicy Bypass',
@@ -56,6 +57,7 @@ for (const command of [
   assert.equal(classifyTerminalSession(command), 'shell', command);
 }
 for (const command of [
+  '@', 'x cmd.exe /k echo ready', '@ cmd.exe /c echo ready',
   'node -i', 'python -i', 'bash script.sh', 'bash script.sh -s', 'bash -- -s',
   'bash --rcfile profile.sh -i', 'sh -c "echo ok"',
   'powershell -Command "Get-Date"', 'powershell -c "Get-Date"',

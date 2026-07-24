@@ -212,6 +212,8 @@ Only directly owned sessions that were opened as ordinary interactive shells rec
 - `shell`: CMD, PowerShell, pwsh, bash, sh, or zsh launched as an interactive shell;
 - `other`: REPLs, applications, scripts, builds, and unknown processes.
 
+Before identifying the shell executable, apply the same bounded CMD echo-control normalization used by launch detection: remove one leading standalone `@` token, while attached forms such as `@cmd.exe` continue through executable-name normalization. Do not skip any other prefix token.
+
 For fixed shell-start options, the first CMD `/c` or `/k` token selects the host mode: `/c` is `other` and `/k` is `shell`. Later occurrences belong to the command text and do not change the session kind. PowerShell or pwsh with `-NoExit` is `shell` when `-NoExit` appears before the execution target, including an initial `-Command` or `-File` form. A trailing `-NoExit` after `-Command`, `-File`, or a positional script is target input and does not keep the host open. Without an effective preceding `-NoExit`, ordinary `-Command <text>` and `-File <path>` forms are `other`, while the exact stdin forms `-Command -` and `-File -` are `shell`.
 
 The bounded PowerShell/pwsh classifier recognizes only `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat` as options that consume exactly one following value. After those values are consumed, any remaining positional token is treated as a script or execution target and the session is `other` unless an effective preceding `-NoExit` was seen. Missing option values are also `other`. Do not infer abbreviations, maintain a complete PowerShell option table, or infer interactivity from output, prompts, process lookup, or script contents.

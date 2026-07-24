@@ -46,6 +46,8 @@ async function run() {
 
   kind = classifyTerminalSession('cmd.exe /k echo ready');
   await assertRefused('codex exec review');
+  kind = classifyTerminalSession('@ cmd.exe /d /k echo ready');
+  await assertRefused('codex exec review');
   kind = classifyTerminalSession('cmd.exe /k echo ready /c');
   await assertRefused('codex exec review');
   kind = classifyTerminalSession('powershell.exe -NoExit -Command "Write-Host ready"');

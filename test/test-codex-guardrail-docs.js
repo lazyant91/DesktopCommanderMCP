@@ -54,7 +54,8 @@ async function run() {
   assert.match(readme, /origin metadata.*every matching Local MCP|every matching Local MCP.*origin metadata/is);
   assert.match(readme, /npx.*(?:-y|--yes).*npm (?:exec|x).*optional `--`/is);
   assert.match(readme, /@openai\/codex@.*version|version.*@openai\/codex@|dist-tag/is);
-  assert.match(readme, /CMD.*`@`.*attached.*standalone token|standalone token.*attached.*CMD/is);
+  assert.match(readme, /CMD.*`@`.*executable-name matching.*shell-session classification/is);
+  assert.match(readme, /attached.*standalone token|standalone token.*attached/is);
   assert.match(readme, /CMD.*first.*(?:\/c|\/k).*(?:host|mode)|(?:\/c|\/k).*first.*CMD/is);
   assert.match(readme, /ExecutionPolicy.*WorkingDirectory.*InputFormat.*OutputFormat/is);
   assert.match(readme, /(?:-Command|-File).*stdin.*exactly `-`|exactly `-`.*(?:-Command|-File).*stdin/is);
