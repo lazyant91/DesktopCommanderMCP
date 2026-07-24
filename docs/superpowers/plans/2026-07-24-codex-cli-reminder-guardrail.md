@@ -19,7 +19,11 @@ The first independent review identified three ordinary-path omissions. The appro
 
 No alias state, wrapper recursion, runtime-code parsing, prompt inference, or general shell grammar is added by this amendment.
 
-The second independent review identified one further PowerShell session-classification omission. The approved correction recognizes exactly four PowerShell/pwsh options as consuming one following value: `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat`. `-NoExit` remains `shell`; `-Command`, `-File`, missing option values, and remaining positional script tokens remain `other`. PowerShell option abbreviations, additional value-consuming options, POSIX value-consuming shell options, backtick/caret continuation, and heredoc parsing remain non-goals.
+The second independent review identified one further PowerShell session-classification omission. The approved correction recognizes exactly four PowerShell/pwsh options as consuming one following value: `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat`. A later self-review confirmed that `-NoExit` keeps the session open only when it appears before the execution target; a trailing `-NoExit` after `-Command`, `-File`, or a positional script is target input. Ordinary `-Command <text>` and `-File <path>` forms, missing option values, and positional script tokens without an effective preceding `-NoExit` remain `other`. Harmless stdin markers also confirmed that exact `-Command -` and `-File -` forms read subsequent input, so those two fixed forms are `shell`. PowerShell option abbreviations, additional value-consuming options, POSIX value-consuming shell options, backtick/caret continuation, and heredoc parsing remain non-goals.
+
+The subsequent P0-P2 self-review found that treating backslash as a universal separator escape caused normal Windows path forms such as `C:\;` and a backslash before LF to hide a later direct launch. It also found that treating single quotes as universal segment protection missed ordinary CMD `&` execution because CMD does not use single quotes for quoting, and that CMD session classification must stop at the first `/c` or `/k` host-mode token because later occurrences belong to command text. The bounded segmenter therefore treats double-quote-external `;`, `|`, `&`, LF, and CRLF as boundaries regardless of a preceding backslash or single quote. Tokenization still accepts single-quoted direct tokens. PowerShell/POSIX single-quoted separator data and POSIX backslash continuation semantics remain deliberately unparsed and may produce conservative refusals.
+
+The same self-review clarified two documentation contracts: Local MCP process calls contain no trusted origin metadata, so every matching call through the guarded process tools receives the reminder; and supported package-launch prefixes are limited to optional `npx -y|--yes`, optional `npx --`, and optional `npm exec|x --` positions. It also added two bounded identity rules: a single leading CMD echo-control `@` is removed from the executable token, and the exact `@openai/codex` package may carry a non-empty `@<version-or-dist-tag>` suffix without becoming a different package. For POSIX shells, exact `-s` before the execution target is recognized as stdin mode even when later positional script arguments exist; combined short-option bundles and general POSIX option-value parsing remain excluded.
 
 ## Global Constraints
 
@@ -92,17 +96,17 @@ Append exactly once, preserving all common repository rules:
 
 ### Human-direct Codex boundary
 
-A Codex session manually started by the human operator in a local terminal is outside this block. Remote work must not terminate, modify, impersonate, or take control of that session and must check branch, worktree, and uncommitted-file conflicts before parallel edits.
+A Codex session manually started by the human operator in a local terminal is outside this block. Remote work must not terminate, modify, impersonate, or take control of that session. It must not change Codex installation, credentials, configuration, or subscription state unless the human operator explicitly requests that separate work, and it must check branch, worktree, and uncommitted-file conflicts before parallel edits.
 
 ### Local MCP refusal response
 
 > Local Codex CLI execution was not performed.
 >
-> This task originated from web ChatGPT, Remote, or Local MCP and must not use or consume the human operator's local Codex subscription quota.
+> Local MCP process calls do not carry trusted origin metadata, so this reminder applies to every matching request and protects the human operator's local Codex subscription quota.
 >
 > Continue through Inline Execution in the current web ChatGPT session. Do not select a local Codex-backed Subagent and do not work around this refusal.
 >
-> A separate Codex session started directly by the human operator is outside this Remote-only restriction.
+> A separate Codex session started directly by the human operator in a local terminal is outside this Local MCP process-tool guardrail.
 
 <!-- CHATGPT-REMOTE-ONLY:END -->
 ```
@@ -201,16 +205,18 @@ Use visibly blank project fields and these sections:
 
 - A Codex session manually started by the human operator is outside the Remote restriction.
 - Do not stop, modify, impersonate, or take control of it.
+- Do not change Codex installation, credentials, configuration, or subscription state unless the human operator explicitly requests that separate work.
 - Check branch, worktree, and uncommitted-file conflicts before parallel work.
 - An agent cannot classify itself as human-direct.
 
 # Repository AGENTS.md initialization
 
-- Before mutation, locate and read the repository-root `AGENTS.md`.
+- Before any file mutation, Git mutation, build, test, or general local process execution, locate and read the repository-root `AGENTS.md` and ensure the reusable Remote-only block is present.
+- The block markers are `<!-- CHATGPT-REMOTE-ONLY:BEGIN -->` and `<!-- CHATGPT-REMOTE-ONLY:END -->`.
 - When both markers are present, do nothing.
 - When neither marker is present, preserve existing content and append the reusable block once.
 - When only one marker is present, report damage and do not repair automatically.
-- Read-only exploration does not require creating the block.
+- Read-only exploration used only to locate the repository and inspect instructions does not require creating the block.
 
 # Git, verification, and reporting
 
@@ -309,11 +315,11 @@ Implement only:
 ```ts
 export const CODEX_GUARDRAIL_MESSAGE = `Local Codex CLI execution was not performed.
 
-This task originated from web ChatGPT, Remote, or Local MCP and must not use or consume the human operator's local Codex subscription quota.
+Local MCP process calls do not carry trusted origin metadata, so this reminder applies to every matching request and protects the human operator's local Codex subscription quota.
 
 Continue through Inline Execution in the current web ChatGPT session. Do not select a local Codex-backed Subagent and do not work around this refusal.
 
-A separate Codex session started directly by the human operator is outside this Remote-only restriction.`;
+A separate Codex session started directly by the human operator in a local terminal is outside this Local MCP process-tool guardrail.`;
 ```
 
 The module must import only `node:path`, perform no I/O, store no persistent state, and return `{ matched: false }` for non-matches.
@@ -722,7 +728,7 @@ Expected: FAIL on the first missing README, security, or changelog statement.
 
 When work originates from web ChatGPT through Remote or Local MCP, ordinary recognizable launches of the local Codex CLI are refused before execution. The refusal tells the caller to continue through Inline Execution in the current web ChatGPT session instead of using a local Codex-backed Subagent.
 
-The reminder covers direct `codex` launcher names, the official `@openai/codex` npm execution forms, and the same commands sent to an owned interactive shell. It is independent of the editable `blockedCommands` list. Other AI tools, ordinary Git/npm/build/test commands, package metadata operations, paths containing the word `codex`, and strings in non-shell REPL sessions are not restricted by this feature.
+The process tools do not receive trusted origin metadata, so every matching Local MCP process-tool call receives the reminder. The reminder covers direct `codex` launcher names, bounded official `@openai/codex` npm execution forms, and the same commands sent to recognized owned shells. It is independent of the editable `blockedCommands` list. Other AI tools, ordinary Git/npm/build/test commands, package metadata operations, paths containing the word `codex`, and strings in non-shell REPL sessions are not restricted by this feature.
 
 A Codex session that the human operator starts directly in a local terminal is outside this Remote-only rule. The guardrail does not stop or modify that session.
 
@@ -734,13 +740,13 @@ This is an accidental-use workflow guardrail, not a sandbox. It does not attempt
 Add this controls-table row:
 
 ```markdown
-| Codex CLI reminder | Refuse ordinary Remote-origin Codex launches and direct callers to Inline Execution | No |
+| Codex CLI reminder | Refuse ordinary recognizable Codex launches through Local MCP and direct callers to Inline Execution | No |
 ```
 
 Add after the table:
 
 ```markdown
-The Codex CLI reminder is a workflow guardrail for web ChatGPT, Remote, and Local MCP tasks. It is not a security boundary or sandbox, and it does not apply to a human-direct Codex session manually started by the operator in a local terminal.
+The Codex CLI reminder is a workflow guardrail for web ChatGPT, Remote, and Local MCP tasks. Local MCP process calls do not carry trusted origin metadata, so every matching guarded call receives the same refusal. It is not a security boundary or sandbox, and it does not apply to a human-direct Codex session manually started by the operator in a separate local terminal.
 ```
 
 Add under known limitations:
@@ -757,7 +763,7 @@ Add under known limitations:
 
 ### Added
 
-- Added a Remote-only Codex CLI reminder that refuses ordinary recognizable local Codex launches before execution and directs web ChatGPT workflows to continue through Inline Execution.
+- Added a Codex CLI reminder for Remote and Local MCP workflows that refuses ordinary recognizable local Codex launches before execution and directs web ChatGPT workflows to continue through Inline Execution; because process calls carry no trusted origin metadata, every matching guarded call receives the same refusal.
 - Added reusable project instructions and a marked `AGENTS.md` scope block that human-direct local Codex sessions can skip.
 
 ### Security

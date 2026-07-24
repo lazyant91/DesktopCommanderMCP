@@ -24,16 +24,18 @@
 
 - A Codex session manually started by the human operator is outside the Remote restriction.
 - Do not stop, modify, impersonate, or take control of it.
+- Do not change Codex installation, credentials, configuration, or subscription state unless the human operator explicitly requests that separate work.
 - Check branch, worktree, and uncommitted-file conflicts before parallel work.
 - An agent cannot classify itself as human-direct.
 
 # Repository AGENTS.md initialization
 
-- Before mutation, locate and read the repository-root `AGENTS.md`.
+- Before any file mutation, Git mutation, build, test, or general local process execution, locate and read the repository-root `AGENTS.md` and ensure the reusable Remote-only block is present.
+- The block markers are `<!-- CHATGPT-REMOTE-ONLY:BEGIN -->` and `<!-- CHATGPT-REMOTE-ONLY:END -->`.
 - When both markers are present, do nothing.
 - When neither marker is present, preserve existing content and append the reusable block once.
 - When only one marker is present, report damage and do not repair automatically.
-- Read-only exploration does not require creating the block.
+- Read-only exploration used only to locate the repository and inspect instructions does not require creating the block.
 
 # Git, verification, and reporting
 

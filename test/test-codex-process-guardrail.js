@@ -13,6 +13,8 @@ function assertReminder(result) {
   assert.equal(result.content?.[0]?.text, CODEX_GUARDRAIL_MESSAGE);
   for (const phrase of [
     'Local Codex CLI execution was not performed',
+    'do not carry trusted origin metadata',
+    'every matching request',
     'local Codex subscription quota',
     'Inline Execution',
     'local Codex-backed Subagent',
@@ -31,12 +33,21 @@ async function run() {
 
   for (const args of [
     { command: 'codex exec review', timeout_ms: 100 },
+    { command: '@codex exec review', timeout_ms: 100 },
+    { command: '@npx @openai/codex', timeout_ms: 100 },
+    { command: 'npx -- @openai/codex', timeout_ms: 100 },
+    { command: 'npx --yes -- @openai/codex@latest', timeout_ms: 100 },
     { command: 'npx @openai/codex', timeout_ms: 100 },
     { command: 'npx @openai/codex exec review', timeout_ms: 100 },
+    { command: 'npx @openai/codex@latest exec review', timeout_ms: 100 },
+    { command: 'npm exec -- @openai/codex@1.2.3 --version', timeout_ms: 100 },
     { command: 'npm exec -- @openai/codex --version', timeout_ms: 100 },
     { command: 'echo ready && codex review', timeout_ms: 100 },
     { command: 'echo ready\ncodex exec review', timeout_ms: 100 },
     { command: 'echo ready\r\ncodex exec review', timeout_ms: 100 },
+    { command: 'Set-Location C:\\; codex exec review', timeout_ms: 100 },
+    { command: 'Set-Location C:\\\ncodex exec review', timeout_ms: 100 },
+    { command: "echo 'ready & codex exec review'", timeout_ms: 100 },
     { command: 'echo safe', timeout_ms: 100, shell: 'codex.exe' },
   ]) {
     calls = 0;

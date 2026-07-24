@@ -25,15 +25,34 @@ async function run() {
   terminalManager.sendInputToProcess = () => { sends += 1; return true; };
 
   await assertRefused('codex exec review');
+  await assertRefused('@codex exec review');
+  await assertRefused('@npx @openai/codex');
+  await assertRefused('npx -- @openai/codex');
+  await assertRefused('npx --yes -- @openai/codex@latest');
   await assertRefused('npx @openai/codex exec review');
+  await assertRefused('npx @openai/codex@latest exec review');
+  await assertRefused('npm exec -- @openai/codex@1.2.3 --version');
   await assertRefused('echo ready\ncodex exec review');
   await assertRefused('echo ready\r\ncodex exec review');
+  await assertRefused('Set-Location C:\\; codex exec review');
+  await assertRefused('Set-Location C:\\\ncodex exec review');
+  await assertRefused("echo 'ready & codex exec review'");
 
   kind = classifyTerminalSession('cmd.exe /k echo ready');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('cmd.exe /k echo ready /c');
   await assertRefused('codex exec review');
   kind = classifyTerminalSession('powershell.exe -NoExit -Command "Write-Host ready"');
   await assertRefused('codex exec review');
   kind = classifyTerminalSession('pwsh -NoExit -File profile.ps1');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('powershell.exe -Command -');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('pwsh -File -');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('bash -s arg1');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('sh -s -- arg1');
   await assertRefused('codex exec review');
   for (const command of [
     'powershell.exe -ExecutionPolicy Bypass',

@@ -52,8 +52,8 @@ The feature is deliberately a reminder and accidental-use guardrail. It must not
 - Dynamic code that constructs the word `codex` at runtime.
 - Environment-variable assignments or other launcher prefixes that require skipping tokens to infer a later executable.
 - PowerShell option abbreviations or value-consuming startup options outside the fixed supported set.
-- POSIX shell value-consuming startup options, such as `bash --rcfile profile.sh -i`.
-- Shell-specific multiline grammar, including PowerShell backtick continuation, CMD caret continuation, and POSIX heredocs.
+- POSIX shell value-consuming startup options, such as `bash --rcfile profile.sh -i`, and combined short-option bundles such as `-is`.
+- Shell-specific escaping or multiline grammar, including PowerShell/POSIX single-quoted separator data, PowerShell backtick continuation, CMD caret continuation, POSIX backslash continuation, and POSIX heredocs.
 - Shell families outside cmd, PowerShell/pwsh, bash, sh, and zsh, including fish.
 - Processes launched outside Local MCP.
 - A human-owned terminal session that the human operator started directly.
@@ -115,7 +115,7 @@ The Local MCP server does not silently modify arbitrary repositories. The Remote
 
 ### 3. Small Local MCP Codex launch reminder
 
-Create a small configuration-independent detector dedicated only to recognizable Codex CLI launch requests.
+Create a small configuration-independent detector dedicated only to recognizable Codex CLI launch requests. The process-tool request does not carry trusted origin metadata, so the Local MCP layer applies the reminder to every matching `start_process` call and matching input sent to a recognized owned shell. Human-direct use remains outside the policy by occurring in a separate local terminal rather than through Local MCP process tools.
 
 Suggested interface:
 
@@ -138,7 +138,7 @@ The detector is pure, synchronous, bounded by the supplied command string, and p
 
 ### Direct executable
 
-Recognize a first executable token whose normalized basename is `codex` after removing quotes and these launcher suffixes:
+Recognize a first executable token whose normalized basename is `codex` after removing a single leading CMD echo-control `@`, matching token quotes, and these launcher suffixes:
 
 - `.exe`
 - `.cmd`
@@ -153,7 +153,7 @@ codex.cmd review
 "C:\Users\example\AppData\Roaming\npm\codex.cmd" exec review
 ```
 
-The detector splits ordinary command segments only at unquoted `;`, `|`, `&`, LF, and CRLF boundaries, then examines the first token of each segment. It does not skip environment-variable assignments or launcher prefixes to infer a later executable, and it must not add a new shell grammar or recursive runtime parser.
+The detector splits ordinary command segments at double-quote-external `;`, `|`, `&`, LF, and CRLF boundaries, then examines the first token of each segment. Double quotes are the only cross-shell segment-protection quote because CMD does not treat single quotes as quoting; tokenization may still accept single quotes for a direct token. A backslash is not treated as a cross-shell escape for those segment separators. The detector does not skip environment-variable assignments or launcher prefixes to infer a later executable, and it must not add a new shell grammar or recursive runtime parser.
 
 ### Official package launch
 
@@ -167,7 +167,7 @@ npm exec -- @openai/codex --version
 npm x -- @openai/codex
 ```
 
-Once the package token is found in the supported launcher position, trailing tokens are treated as arguments passed to the Codex CLI and do not make the launch allowable. A small number of normal launcher options may be supported when they occur in the conventional position, but the implementation must not grow into a general npm parser.
+Once the package token is found in the supported launcher position, trailing tokens are treated as arguments passed to the Codex CLI and do not make the launch allowable. The package token may be exactly `@openai/codex` or the exact package name followed by a non-empty `@<version-or-dist-tag>` specifier; similarly named packages do not match. The bounded supported launcher options are optional `-y` or `--yes` immediately after `npx`, followed by an optional `--`, and an optional `--` immediately before the package token for `npm exec` or `npm x`. No other npm/npx option parsing is implied, and the implementation must not grow into a general npm parser.
 
 Package references used for metadata operations remain allowed:
 
@@ -212,9 +212,11 @@ Only directly owned sessions that were opened as ordinary interactive shells rec
 - `shell`: CMD, PowerShell, pwsh, bash, sh, or zsh launched as an interactive shell;
 - `other`: REPLs, applications, scripts, builds, and unknown processes.
 
-For fixed shell-start options, CMD `/c` is `other` while CMD `/k` is `shell`. PowerShell or pwsh with `-NoExit` is `shell` even when `-Command` or `-File` supplies initial work; without `-NoExit`, those execution forms remain `other`.
+For fixed shell-start options, the first CMD `/c` or `/k` token selects the host mode: `/c` is `other` and `/k` is `shell`. Later occurrences belong to the command text and do not change the session kind. PowerShell or pwsh with `-NoExit` is `shell` when `-NoExit` appears before the execution target, including an initial `-Command` or `-File` form. A trailing `-NoExit` after `-Command`, `-File`, or a positional script is target input and does not keep the host open. Without an effective preceding `-NoExit`, ordinary `-Command <text>` and `-File <path>` forms are `other`, while the exact stdin forms `-Command -` and `-File -` are `shell`.
 
-The bounded PowerShell/pwsh classifier recognizes only `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat` as options that consume exactly one following value. After those values are consumed, any remaining positional token is treated as a script or execution target and the session is `other`. Missing option values are also `other`. Do not infer abbreviations, maintain a complete PowerShell option table, or infer interactivity from output, prompts, process lookup, or script contents.
+The bounded PowerShell/pwsh classifier recognizes only `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat` as options that consume exactly one following value. After those values are consumed, any remaining positional token is treated as a script or execution target and the session is `other` unless an effective preceding `-NoExit` was seen. Missing option values are also `other`. Do not infer abbreviations, maintain a complete PowerShell option table, or infer interactivity from output, prompts, process lookup, or script contents.
+
+For bash, sh, and zsh, exact `-s` before the execution target selects stdin mode. Later positional values and values after an option terminator belong to the stdin script as arguments, so the session remains `shell`. `-c`, a script path before `-s`, or `-s` encountered only after `--` remains `other`. Do not parse combined short-option bundles or additional POSIX option-value grammars.
 
 For a `shell` session, evaluate recognizable direct and official package-launch forms before calling `sendInputToProcess`.
 
@@ -231,14 +233,14 @@ Required meaning:
 ```text
 Local Codex CLI execution was not performed.
 
-This task originated from web ChatGPT, Remote, or Local MCP and must not use
-or consume the human operator's local Codex subscription quota.
+Local MCP process calls do not carry trusted origin metadata, so this reminder
+applies to every matching request and protects the human operator's local Codex subscription quota.
 
 Continue through Inline Execution in the current web ChatGPT session. Do not
 select a local Codex-backed Subagent and do not work around this refusal.
 
-A separate Codex session started directly by the human operator is outside
-this Remote-only restriction.
+A separate Codex session started directly by the human operator in a local terminal
+is outside this Local MCP process-tool guardrail.
 ```
 
 The implementation may format this text for existing MCP result conventions, but tests must verify all required meanings.
@@ -283,6 +285,7 @@ Use test-driven development.
 - ordinary chained or multiline command whose actual command segment starts Codex
 - `npx @openai/codex`
 - `npx @openai/codex exec review`
+- `npx @openai/codex@latest exec review`
 - `npm exec -- @openai/codex`
 - `npm exec -- @openai/codex --version`
 - `npm x -- @openai/codex`
@@ -290,7 +293,9 @@ Use test-driven development.
 - direct Codex input sent to an owned shell session
 - Codex input sent after starting CMD with `/k`
 - Codex input sent after starting PowerShell or pwsh with `-NoExit`
+- Codex input sent after starting PowerShell/pwsh with exact stdin forms `-Command -` or `-File -`
 - Codex input sent after starting PowerShell/pwsh with `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, or `-OutputFormat` and one option value
+- Codex input sent after starting bash, sh, or zsh in exact `-s` stdin mode with script arguments
 - recognized launch while `blockedCommands` is empty
 
 ### Required allowed cases

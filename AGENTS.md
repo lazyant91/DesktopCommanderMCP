@@ -176,16 +176,16 @@ Prefer temporary, transaction-owned resources that can be removed after the fina
 
 ### Human-direct Codex boundary
 
-A Codex session manually started by the human operator in a local terminal is outside this block. Remote work must not terminate, modify, impersonate, or take control of that session and must check branch, worktree, and uncommitted-file conflicts before parallel edits.
+A Codex session manually started by the human operator in a local terminal is outside this block. Remote work must not terminate, modify, impersonate, or take control of that session. It must not change Codex installation, credentials, configuration, or subscription state unless the human operator explicitly requests that separate work, and it must check branch, worktree, and uncommitted-file conflicts before parallel edits.
 
 ### Local MCP refusal response
 
 > Local Codex CLI execution was not performed.
 >
-> This task originated from web ChatGPT, Remote, or Local MCP and must not use or consume the human operator's local Codex subscription quota.
+> Local MCP process calls do not carry trusted origin metadata, so this reminder applies to every matching request and protects the human operator's local Codex subscription quota.
 >
 > Continue through Inline Execution in the current web ChatGPT session. Do not select a local Codex-backed Subagent and do not work around this refusal.
 >
-> A separate Codex session started directly by the human operator is outside this Remote-only restriction.
+> A separate Codex session started directly by the human operator in a local terminal is outside this Local MCP process-tool guardrail.
 
 <!-- CHATGPT-REMOTE-ONLY:END -->

@@ -22,13 +22,13 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | --- | --- | --- |
 | `allowedDirectories` | Reduce accidental access by structured file tools | No |
 | Command blocklist | Reject explicitly listed command names | No |
-| Codex CLI reminder | Refuse ordinary Remote-origin Codex launches and direct callers to Inline Execution | No |
+| Codex CLI reminder | Refuse ordinary recognizable Codex launches through Local MCP and direct callers to Inline Execution | No |
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
 | Exact edit matching | Prevent ambiguous text replacements | No |
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
-The Codex CLI reminder is a workflow guardrail for web ChatGPT, Remote, and Local MCP tasks. It is not a security boundary or sandbox, and it does not apply to a human-direct Codex session manually started by the operator in a local terminal.
+The Codex CLI reminder is a workflow guardrail for web ChatGPT, Remote, and Local MCP tasks. Local MCP process calls do not carry trusted origin metadata, so every matching call through `start_process` or a recognized owned-shell `interact_with_process` input receives the same refusal. It is not a security boundary or sandbox, and it does not apply to a human-direct Codex session manually started by the operator in a separate local terminal.
 
 Terminal execution is intentionally open-ended. A command can invoke another interpreter, use absolute paths, run scripts, access networks, or operate outside structured filesystem roots. File roots and command filtering must not be described as a sandbox.
 

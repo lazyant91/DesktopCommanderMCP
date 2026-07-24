@@ -8,11 +8,11 @@ export type TerminalSessionKind = 'shell' | 'other';
 
 export const CODEX_GUARDRAIL_MESSAGE = `Local Codex CLI execution was not performed.
 
-This task originated from web ChatGPT, Remote, or Local MCP and must not use or consume the human operator's local Codex subscription quota.
+Local MCP process calls do not carry trusted origin metadata, so this reminder applies to every matching request and protects the human operator's local Codex subscription quota.
 
 Continue through Inline Execution in the current web ChatGPT session. Do not select a local Codex-backed Subagent and do not work around this refusal.
 
-A separate Codex session started directly by the human operator is outside this Remote-only restriction.`;
+A separate Codex session started directly by the human operator in a local terminal is outside this Local MCP process-tool guardrail.`;
 
 const CODEX_PACKAGE = '@openai/codex';
 const LAUNCHER_SUFFIXES = /\.(?:exe|cmd|bat|ps1)$/i;
@@ -30,7 +30,9 @@ function stripMatchingQuotes(value: string): string {
 }
 
 function portableBasename(value: string): string {
-  const unquoted = stripMatchingQuotes(value);
+  const trimmed = value.trim();
+  const withoutCmdEchoPrefix = trimmed.startsWith('@') ? trimmed.slice(1).trimStart() : trimmed;
+  const unquoted = stripMatchingQuotes(withoutCmdEchoPrefix);
   return path.win32.basename(path.posix.basename(unquoted));
 }
 
@@ -45,23 +47,10 @@ export function isCodexExecutable(value: string): boolean {
 function splitCommandSegments(command: string): string[] {
   const segments: string[] = [];
   let current = '';
-  let quote: '"' | "'" | null = null;
-  let escaped = false;
+  let quote: '"' | null = null;
 
   for (let index = 0; index < command.length; index += 1) {
     const char = command[index];
-
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === '\\' && quote !== "'") {
-      current += char;
-      escaped = true;
-      continue;
-    }
 
     if (quote) {
       current += char;
@@ -69,7 +58,7 @@ function splitCommandSegments(command: string): string[] {
       continue;
     }
 
-    if (char === '"' || char === "'") {
+    if (char === '"') {
       quote = char;
       current += char;
       continue;
@@ -153,6 +142,14 @@ function tokenize(command: string): string[] {
   return tokens;
 }
 
+function isOfficialCodexPackageSpec(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  if (normalized === CODEX_PACKAGE) return true;
+  const versionedPrefix = `${CODEX_PACKAGE}@`;
+  return normalized.startsWith(versionedPrefix) && normalized.length > versionedPrefix.length;
+}
+
 function isOfficialPackageLaunch(tokens: string[]): boolean {
   if (tokens.length < 2) return false;
 
@@ -160,13 +157,14 @@ function isOfficialPackageLaunch(tokens: string[]): boolean {
   if (launcher === 'npx') {
     let index = 1;
     if (tokens[index] === '-y' || tokens[index] === '--yes') index += 1;
-    return tokens[index]?.toLowerCase() === CODEX_PACKAGE;
+    if (tokens[index] === '--') index += 1;
+    return isOfficialCodexPackageSpec(tokens[index]);
   }
 
   if (launcher === 'npm' && (tokens[1]?.toLowerCase() === 'exec' || tokens[1]?.toLowerCase() === 'x')) {
     let index = 2;
     if (tokens[index] === '--') index += 1;
-    return tokens[index]?.toLowerCase() === CODEX_PACKAGE;
+    return isOfficialCodexPackageSpec(tokens[index]);
   }
 
   return false;
@@ -197,31 +195,59 @@ export function classifyTerminalSession(command: string): TerminalSessionKind {
   const args = tokens.slice(1);
 
   if (shell === 'cmd') {
-    if (args.some((arg) => /^\/c$/i.test(arg))) return 'other';
-    if (args.some((arg) => /^\/k$/i.test(arg))) return 'shell';
+    for (const arg of args) {
+      if (/^\/c$/i.test(arg)) return 'other';
+      if (/^\/k$/i.test(arg)) return 'shell';
+    }
     return 'shell';
   }
 
   if (shell === 'powershell' || shell === 'pwsh') {
-    if (args.some((arg) => /^-noexit$/i.test(arg))) return 'shell';
+    let noExit = false;
 
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
-      if (/^-(?:command|c|file|f)$/i.test(arg)) return 'other';
+      if (/^-noexit$/i.test(arg)) {
+        noExit = true;
+        continue;
+      }
+      if (/^-(?:command|c|file|f)$/i.test(arg)) {
+        if (args[index + 1] === '-') return 'shell';
+        return noExit ? 'shell' : 'other';
+      }
       if (/^-(?:executionpolicy|workingdirectory|inputformat|outputformat)$/i.test(arg)) {
         if (index + 1 >= args.length) return 'other';
         index += 1;
         continue;
       }
-      if (!arg.startsWith('-')) return 'other';
+      if (!arg.startsWith('-')) return noExit ? 'shell' : 'other';
     }
 
     return 'shell';
   }
 
   if (shell === 'bash' || shell === 'sh' || shell === 'zsh') {
-    if (args.some((arg) => arg === '-c' || arg === '--command')) return 'other';
-    return args.some((arg) => !arg.startsWith('-')) ? 'other' : 'shell';
+    let stdinMode = false;
+    let optionsEnded = false;
+
+    for (const arg of args) {
+      if (!optionsEnded) {
+        if (arg === '--') {
+          optionsEnded = true;
+          continue;
+        }
+        if (arg === '-c' || arg === '--command') return 'other';
+        if (arg === '-s') {
+          stdinMode = true;
+          continue;
+        }
+        if (arg.startsWith('-')) continue;
+      }
+
+      return stdinMode ? 'shell' : 'other';
+    }
+
+    return 'shell';
   }
 
   return 'other';
