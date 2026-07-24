@@ -35,6 +35,16 @@ async function run() {
   await assertRefused('codex exec review');
   kind = classifyTerminalSession('pwsh -NoExit -File profile.ps1');
   await assertRefused('codex exec review');
+  for (const command of [
+    'powershell.exe -ExecutionPolicy Bypass',
+    'powershell.exe -NoLogo -ExecutionPolicy Bypass',
+    'pwsh -WorkingDirectory .',
+    'pwsh -InputFormat Text',
+    'pwsh -OutputFormat Text',
+  ]) {
+    kind = classifyTerminalSession(command);
+    await assertRefused('codex exec review');
+  }
 
   kind = 'shell';
   sends = 0;

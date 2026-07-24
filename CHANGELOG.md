@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - Added a Remote-only Codex CLI reminder that refuses ordinary recognizable local Codex launches before execution and directs web ChatGPT workflows to continue through Inline Execution.
+- Added bounded PowerShell/pwsh interactive-session recognition for `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat` option values.
 - Added reusable project instructions and a marked `AGENTS.md` scope block that human-direct local Codex sessions can skip.
 
 ### Security

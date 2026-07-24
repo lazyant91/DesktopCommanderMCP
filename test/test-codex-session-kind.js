@@ -14,6 +14,7 @@ async function run() {
   if (process.platform === 'win32') {
     await inspect('cmd.exe', 'shell');
     await inspect('cmd.exe /k echo ready', 'shell');
+    await inspect('powershell.exe -ExecutionPolicy Bypass', 'shell');
   } else {
     await inspect('sh', 'shell');
   }

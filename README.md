@@ -187,7 +187,11 @@ The reminder covers direct `codex` launcher names, the official `@openai/codex` 
 
 A Codex session that the human operator starts directly in a local terminal is outside this Remote-only rule. The guardrail does not stop or modify that session.
 
-This is an accidental-use workflow guardrail, not a sandbox. It does not attempt to detect renamed binaries, dynamically constructed executable names, custom forwarding scripts, environment-variable assignment prefixes used to reach a later executable token, or launches performed outside Local MCP. Shell-session classification is limited to cmd, PowerShell/pwsh, bash, sh, and zsh; fish and other shell families are outside this bounded classifier. Use a separate operating-system account or virtual machine when stronger isolation is required.
+This is an accidental-use workflow guardrail, not a sandbox. It does not attempt to detect renamed binaries, dynamically constructed executable names, custom forwarding scripts, environment-variable assignment prefixes used to reach a later executable token, or launches performed outside Local MCP. Shell-session classification is limited to cmd, PowerShell/pwsh, bash, sh, and zsh; fish and other shell families are outside this bounded classifier.
+
+The bounded PowerShell/pwsh classifier recognizes `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat` as options that consume exactly one following value. It does not infer option abbreviations or parse additional value-consuming options. POSIX shell value-consuming startup options, such as `bash --rcfile profile.sh -i`, remain outside this bounded classifier.
+
+Shell-specific multiline syntax is not interpreted. PowerShell backtick continuation, CMD caret continuation, and POSIX heredoc content can therefore be conservatively refused when a later line resembles a recognized launch. Use a separate operating-system account or virtual machine when stronger isolation is required.
 
 ### Terminal sessions
 

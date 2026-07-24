@@ -51,6 +51,9 @@ The feature is deliberately a reminder and accidental-use guardrail. It must not
 - Renamed executables.
 - Dynamic code that constructs the word `codex` at runtime.
 - Environment-variable assignments or other launcher prefixes that require skipping tokens to infer a later executable.
+- PowerShell option abbreviations or value-consuming startup options outside the fixed supported set.
+- POSIX shell value-consuming startup options, such as `bash --rcfile profile.sh -i`.
+- Shell-specific multiline grammar, including PowerShell backtick continuation, CMD caret continuation, and POSIX heredocs.
 - Shell families outside cmd, PowerShell/pwsh, bash, sh, and zsh, including fish.
 - Processes launched outside Local MCP.
 - A human-owned terminal session that the human operator started directly.
@@ -209,7 +212,9 @@ Only directly owned sessions that were opened as ordinary interactive shells rec
 - `shell`: CMD, PowerShell, pwsh, bash, sh, or zsh launched as an interactive shell;
 - `other`: REPLs, applications, scripts, builds, and unknown processes.
 
-For fixed shell-start options, CMD `/c` is `other` while CMD `/k` is `shell`. PowerShell or pwsh with `-NoExit` is `shell` even when `-Command` or `-File` supplies initial work; without `-NoExit`, those execution forms remain `other`. Do not infer interactivity from output, prompts, process lookup, or script contents.
+For fixed shell-start options, CMD `/c` is `other` while CMD `/k` is `shell`. PowerShell or pwsh with `-NoExit` is `shell` even when `-Command` or `-File` supplies initial work; without `-NoExit`, those execution forms remain `other`.
+
+The bounded PowerShell/pwsh classifier recognizes only `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat` as options that consume exactly one following value. After those values are consumed, any remaining positional token is treated as a script or execution target and the session is `other`. Missing option values are also `other`. Do not infer abbreviations, maintain a complete PowerShell option table, or infer interactivity from output, prompts, process lookup, or script contents.
 
 For a `shell` session, evaluate recognizable direct and official package-launch forms before calling `sendInputToProcess`.
 
@@ -285,6 +290,7 @@ Use test-driven development.
 - direct Codex input sent to an owned shell session
 - Codex input sent after starting CMD with `/k`
 - Codex input sent after starting PowerShell or pwsh with `-NoExit`
+- Codex input sent after starting PowerShell/pwsh with `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, or `-OutputFormat` and one option value
 - recognized launch while `blockedCommands` is empty
 
 ### Required allowed cases
@@ -297,6 +303,7 @@ Use test-driven development.
 - `npm view @openai/codex version`
 - `npm install @openai/codex --save-dev`
 - `CI=1 codex exec review`, because environment-variable assignment prefixes are not skipped
+- `bash --rcfile profile.sh -i` sessions, because POSIX value-consuming startup options are not parsed
 - fish sessions, because fish is outside the bounded interactive-shell classifier
 - unrelated script inside a directory named `codex`
 - quoted string `"codex"` in Node or Python REPL input

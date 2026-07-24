@@ -204,8 +204,19 @@ export function classifyTerminalSession(command: string): TerminalSessionKind {
 
   if (shell === 'powershell' || shell === 'pwsh') {
     if (args.some((arg) => /^-noexit$/i.test(arg))) return 'shell';
-    if (args.some((arg) => /^-(?:command|c|file|f)$/i.test(arg))) return 'other';
-    return args.some((arg) => !arg.startsWith('-')) ? 'other' : 'shell';
+
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (/^-(?:command|c|file|f)$/i.test(arg)) return 'other';
+      if (/^-(?:executionpolicy|workingdirectory|inputformat|outputformat)$/i.test(arg)) {
+        if (index + 1 >= args.length) return 'other';
+        index += 1;
+        continue;
+      }
+      if (!arg.startsWith('-')) return 'other';
+    }
+
+    return 'shell';
   }
 
   if (shell === 'bash' || shell === 'sh' || shell === 'zsh') {

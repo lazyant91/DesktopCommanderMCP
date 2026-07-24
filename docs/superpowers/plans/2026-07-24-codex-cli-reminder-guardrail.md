@@ -19,6 +19,8 @@ The first independent review identified three ordinary-path omissions. The appro
 
 No alias state, wrapper recursion, runtime-code parsing, prompt inference, or general shell grammar is added by this amendment.
 
+The second independent review identified one further PowerShell session-classification omission. The approved correction recognizes exactly four PowerShell/pwsh options as consuming one following value: `-ExecutionPolicy`, `-WorkingDirectory`, `-InputFormat`, and `-OutputFormat`. `-NoExit` remains `shell`; `-Command`, `-File`, missing option values, and remaining positional script tokens remain `other`. PowerShell option abbreviations, additional value-consuming options, POSIX value-consuming shell options, backtick/caret continuation, and heredoc parsing remain non-goals.
+
 ## Global Constraints
 
 - Work only on `feat/codex-cli-reminder-guardrail` in `D:\AI\dcmcp-worktrees\codex-cli-reminder-guardrail`.

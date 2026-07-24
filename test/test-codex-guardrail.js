@@ -29,14 +29,18 @@ for (const executable of ['node', 'codex-helper', 'my-codex.cmd', 'C:\\projects\
 for (const command of [
   'cmd', 'cmd.exe /d /q', 'cmd.exe /k', 'cmd.exe /k echo ready',
   'powershell -NoLogo', 'powershell.exe -NoExit -Command "Write-Host ready"',
-  'pwsh -NoLogo', 'pwsh -NoExit -File profile.ps1',
+  'powershell.exe -ExecutionPolicy Bypass', 'powershell.exe -NoLogo -ExecutionPolicy Bypass',
+  'pwsh -NoLogo', 'pwsh -NoExit -File profile.ps1', 'pwsh -WorkingDirectory .',
+  'pwsh -InputFormat Text', 'pwsh -OutputFormat Text',
   'bash -i', 'sh', 'zsh -l',
 ]) {
   assert.equal(classifyTerminalSession(command), 'shell', command);
 }
 for (const command of [
-  'node -i', 'python -i', 'bash script.sh', 'sh -c "echo ok"',
-  'powershell -Command "Get-Date"', 'pwsh -File profile.ps1', 'cmd /c echo ok', 'fish -i',
+  'node -i', 'python -i', 'bash script.sh', 'bash --rcfile profile.sh -i', 'sh -c "echo ok"',
+  'powershell -Command "Get-Date"', 'pwsh -File profile.ps1',
+  'powershell profile.ps1', 'pwsh profile.ps1', 'pwsh -WorkingDirectory . profile.ps1',
+  'powershell -ExecutionPolicy', 'cmd /c echo ok', 'fish -i',
 ]) {
   assert.equal(classifyTerminalSession(command), 'other', command);
 }
