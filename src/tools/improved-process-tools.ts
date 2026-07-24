@@ -330,6 +330,11 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
     verbose_timing = false,
   } = parsed.data;
 
+  const session = terminalManager.getSession(pid);
+  if (session?.sessionKind === 'shell' && isRecognizedCodexLaunch(input)) {
+    return codexGuardrailError();
+  }
+
   const config = await configManager.getConfig();
   const maxOutputLines = config.fileReadLineLimit ?? 1000;
   const startTime = Date.now();
