@@ -4,6 +4,16 @@ All notable changes to this fork are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Added reusable web ChatGPT/Remote instructions and a thin Codex CLI reminder that refuses only documented obvious first-position `start_process` launches.
+
+### Security
+
+- Documented the reminder as an accidental-use stop line rather than a complete block, sandbox, or hostile-caller security boundary.
+
 ## [1.0.0] - 2026-07-21
 
 First stable release of the standalone Local MCP Server fork.

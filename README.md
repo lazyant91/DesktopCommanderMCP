@@ -179,6 +179,12 @@ Use `get_config` and `set_config_value` while the server is running. Configurati
 
 ## Runtime behavior
 
+### Thin Codex CLI reminder
+
+`start_process` refuses a small set of obvious first-position local Codex launches and directs web ChatGPT work back to Inline Execution. Recognized forms are direct `codex`, `codex.exe`, `codex.cmd`, or `codex.ps1` executable names and the fixed `npx @openai/codex`, `npx -y|--yes @openai/codex`, and `npm exec|x -- @openai/codex` forms. An explicit or configured shell whose executable name is Codex is also refused.
+
+This is a thin accidental-use stop line, not a complete block, sandbox, or security boundary. It does not inspect chained or later commands, multiline second commands, environment prefixes, CMD `@`, aliases, wrappers, scripts, versioned package specs, or input sent through `interact_with_process`. A human-direct Codex session started separately in a local terminal is untouched.
+
 ### Terminal sessions
 
 `start_process` returns initial output and a server-owned session identifier. A command can continue running after the initial timeout and later be observed with `read_process_output`. Interactive shells and REPLs can receive input through `interact_with_process`.
@@ -236,6 +242,8 @@ These exclusions keep the MCP server small, predictable, and focused on local ex
 - [SECURITY.md](SECURITY.md) — threat model and operating guidance
 - [PRIVACY.md](PRIVACY.md) — local data handling
 - [docs/STDIO_TRANSPORT.md](docs/STDIO_TRANSPORT.md) — protocol-safe stdout behavior
+- [docs/templates/chatgpt-project-instructions-template.md](docs/templates/chatgpt-project-instructions-template.md) — reusable web ChatGPT project instructions
+- [docs/templates/chatgpt-remote-only-agents-block.md](docs/templates/chatgpt-remote-only-agents-block.md) — reusable Remote-only repository block
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development and review workflow
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — upstream attribution
 

@@ -24,6 +24,7 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Command blocklist | Reject explicitly listed command names | No |
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
 | Exact edit matching | Prevent ambiguous text replacements | No |
+| Thin direct Codex reminder | Reduce accidental local Codex starts through `start_process` | No |
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
@@ -42,6 +43,7 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 
 ## Known limitations
 
+- The thin Codex reminder inspects only the documented first-position `start_process` forms. It does not inspect chained or multiline-later commands, aliases, wrappers, scripts, environment prefixes, hostile bypasses, or input sent through `interact_with_process`; it is a thin accidental-use stop line, not a complete block or security boundary.
 - `allowedDirectories` does not constrain arbitrary terminal commands.
 - Command-name filtering can be bypassed through scripts, aliases, alternate interpreters, absolute paths, or shell composition.
 - A trusted client can request destructive operations.
