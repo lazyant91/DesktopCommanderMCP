@@ -1,5 +1,6 @@
 import { ChildProcess } from 'child_process';
 import { FilteredStdioServerTransport } from './custom-stdio.js';
+import type { TerminalSessionKind } from './codex-guardrail.js';
 
 declare global {
   var mcpTransport: FilteredStdioServerTransport | undefined;
@@ -20,6 +21,7 @@ export interface TerminalSession {
   lastReadIndex: number;      // Track where "new" output starts for default reads
   isBlocked: boolean;
   startTime: Date;
+  sessionKind: TerminalSessionKind;
   bufferedChars: number;      // Joined length of outputLines (content + separators)
   evictedLines: number;       // Lines dropped from the front to enforce the buffer cap
   evictedChars: number;       // Joined length of evicted lines (keeps snapshot offsets absolute)

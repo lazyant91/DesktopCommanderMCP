@@ -5,6 +5,7 @@ import { DEFAULT_COMMAND_TIMEOUT } from './config.js';
 import { configManager } from './config-manager.js';
 import {capture} from "./utils/capture.js";
 import { analyzeProcessState } from './utils/process-detection.js';
+import { classifyTerminalSession } from './codex-guardrail.js';
 
 /**
  * Standard Windows PATHEXT value, used to repair a corrupted PATHEXT before
@@ -273,6 +274,7 @@ export class TerminalManager {
       lastReadIndex: 0,          // Track where "new" output starts
       isBlocked: false,
       startTime: new Date(),
+      sessionKind: classifyTerminalSession(command),
       bufferedChars: 0,
       evictedLines: 0,
       evictedChars: 0
