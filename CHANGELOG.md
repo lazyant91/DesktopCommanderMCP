@@ -4,6 +4,17 @@ All notable changes to this fork are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Added a Remote-only Codex CLI reminder that refuses ordinary recognizable local Codex launches before execution and directs web ChatGPT workflows to continue through Inline Execution.
+- Added reusable project instructions and a marked `AGENTS.md` scope block that human-direct local Codex sessions can skip.
+
+### Security
+
+- Documented the Codex reminder as an accidental-use workflow guardrail rather than a sandbox or hostile-caller security boundary.
+
 ## [1.0.0] - 2026-07-21
 
 First stable release of the standalone Local MCP Server fork.

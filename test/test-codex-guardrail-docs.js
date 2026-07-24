@@ -18,10 +18,13 @@ function block(text) {
 }
 
 async function run() {
-  const [agents, reusable, project] = await Promise.all([
+  const [agents, reusable, project, readme, security, changelog] = await Promise.all([
     fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'),
     fs.readFile(path.join(root, 'docs/templates/chatgpt-remote-only-agents-block.md'), 'utf8'),
     fs.readFile(path.join(root, 'docs/templates/chatgpt-project-instructions-template.md'), 'utf8'),
+    fs.readFile(path.join(root, 'README.md'), 'utf8'),
+    fs.readFile(path.join(root, 'SECURITY.md'), 'utf8'),
+    fs.readFile(path.join(root, 'CHANGELOG.md'), 'utf8'),
   ]);
   assert.equal(block(agents), block(reusable));
   const opening = block(reusable).split(/\r?\n/).slice(0, 12).join('\n');
@@ -37,6 +40,21 @@ async function run() {
   assert.match(project, /both markers are present/i);
   assert.match(project, /only one marker is present/i);
   assert.doesNotMatch(project, /DesktopCommanderMCP|mcp-junction|D:\\AI\\MCP/);
+
+  assert.match(readme, /Codex CLI reminder guardrail/i);
+  assert.match(readme, /Inline Execution/);
+  assert.match(readme, /human operator.*directly/i);
+  assert.match(readme, /not a sandbox/i);
+  assert.match(readme, /does not attempt to detect renamed|does not detect renamed/i);
+
+  assert.match(security, /Codex CLI reminder/i);
+  assert.match(security, /workflow guardrail/i);
+  assert.match(security, /not a security boundary|not a sandbox/i);
+  assert.match(security, /human-direct/i);
+
+  assert.match(changelog, /## \[Unreleased\]/);
+  assert.match(changelog, /Codex CLI/i);
+  assert.match(changelog, /Inline Execution/i);
   console.log('Codex guardrail documentation contract passed.');
 }
 

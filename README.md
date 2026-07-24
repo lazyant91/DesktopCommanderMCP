@@ -179,6 +179,16 @@ Use `get_config` and `set_config_value` while the server is running. Configurati
 
 ## Runtime behavior
 
+### Codex CLI reminder guardrail
+
+When work originates from web ChatGPT through Remote or Local MCP, ordinary recognizable launches of the local Codex CLI are refused before execution. The refusal tells the caller to continue through Inline Execution in the current web ChatGPT session instead of using a local Codex-backed Subagent.
+
+The reminder covers direct `codex` launcher names, the official `@openai/codex` npm execution forms, and the same commands sent to an owned interactive shell. It is independent of the editable `blockedCommands` list. Other AI tools, ordinary Git/npm/build/test commands, package metadata operations, paths containing the word `codex`, and strings in non-shell REPL sessions are not restricted by this feature.
+
+A Codex session that the human operator starts directly in a local terminal is outside this Remote-only rule. The guardrail does not stop or modify that session.
+
+This is an accidental-use workflow guardrail, not a sandbox. It does not attempt to detect renamed binaries, dynamically constructed executable names, custom forwarding scripts, or launches performed outside Local MCP. Use a separate operating-system account or virtual machine when stronger isolation is required.
+
 ### Terminal sessions
 
 `start_process` returns initial output and a server-owned session identifier. A command can continue running after the initial timeout and later be observed with `read_process_output`. Interactive shells and REPLs can receive input through `interact_with_process`.
