@@ -46,6 +46,9 @@ async function run() {
   assert.match(readme, /human operator.*directly/i);
   assert.match(readme, /not a sandbox/i);
   assert.match(readme, /does not attempt to detect renamed|does not detect renamed/i);
+  assert.match(readme, /recognized owned interactive shells.*cmd.*PowerShell.*pwsh.*bash.*sh.*zsh/is);
+  assert.match(readme, /environment-variable assignment prefixes/i);
+  assert.doesNotMatch(readme, /same commands sent to an owned interactive shell\./i);
 
   assert.match(security, /Codex CLI reminder/i);
   assert.match(security, /workflow guardrail/i);

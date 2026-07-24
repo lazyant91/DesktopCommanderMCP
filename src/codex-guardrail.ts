@@ -75,6 +75,13 @@ function splitCommandSegments(command: string): string[] {
       continue;
     }
 
+    if (char === '\r' || char === '\n') {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      if (char === '\r' && command[index + 1] === '\n') index += 1;
+      continue;
+    }
+
     if (char === ';' || char === '|' || char === '&') {
       if (current.trim()) segments.push(current.trim());
       current = '';
@@ -153,13 +160,13 @@ function isOfficialPackageLaunch(tokens: string[]): boolean {
   if (launcher === 'npx') {
     let index = 1;
     if (tokens[index] === '-y' || tokens[index] === '--yes') index += 1;
-    return tokens[index]?.toLowerCase() === CODEX_PACKAGE && index === tokens.length - 1;
+    return tokens[index]?.toLowerCase() === CODEX_PACKAGE;
   }
 
   if (launcher === 'npm' && (tokens[1]?.toLowerCase() === 'exec' || tokens[1]?.toLowerCase() === 'x')) {
     let index = 2;
     if (tokens[index] === '--') index += 1;
-    return tokens[index]?.toLowerCase() === CODEX_PACKAGE && index === tokens.length - 1;
+    return tokens[index]?.toLowerCase() === CODEX_PACKAGE;
   }
 
   return false;
@@ -190,10 +197,13 @@ export function classifyTerminalSession(command: string): TerminalSessionKind {
   const args = tokens.slice(1);
 
   if (shell === 'cmd') {
-    return args.some((arg) => /^\/(?:c|k)$/i.test(arg)) ? 'other' : 'shell';
+    if (args.some((arg) => /^\/c$/i.test(arg))) return 'other';
+    if (args.some((arg) => /^\/k$/i.test(arg))) return 'shell';
+    return 'shell';
   }
 
   if (shell === 'powershell' || shell === 'pwsh') {
+    if (args.some((arg) => /^-noexit$/i.test(arg))) return 'shell';
     if (args.some((arg) => /^-(?:command|c|file|f)$/i.test(arg))) return 'other';
     return args.some((arg) => !arg.startsWith('-')) ? 'other' : 'shell';
   }

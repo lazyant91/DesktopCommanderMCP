@@ -183,11 +183,11 @@ Use `get_config` and `set_config_value` while the server is running. Configurati
 
 When work originates from web ChatGPT through Remote or Local MCP, ordinary recognizable launches of the local Codex CLI are refused before execution. The refusal tells the caller to continue through Inline Execution in the current web ChatGPT session instead of using a local Codex-backed Subagent.
 
-The reminder covers direct `codex` launcher names, the official `@openai/codex` npm execution forms, and the same commands sent to an owned interactive shell. It is independent of the editable `blockedCommands` list. Other AI tools, ordinary Git/npm/build/test commands, package metadata operations, paths containing the word `codex`, and strings in non-shell REPL sessions are not restricted by this feature.
+The reminder covers direct `codex` launcher names, the official `@openai/codex` npm execution forms including arguments passed to that package, and the same commands sent to recognized owned interactive shells: cmd, PowerShell, pwsh, bash, sh, and zsh. It is independent of the editable `blockedCommands` list. Other AI tools, ordinary Git/npm/build/test commands, package metadata operations, paths containing the word `codex`, and strings in non-shell REPL sessions are not restricted by this feature.
 
 A Codex session that the human operator starts directly in a local terminal is outside this Remote-only rule. The guardrail does not stop or modify that session.
 
-This is an accidental-use workflow guardrail, not a sandbox. It does not attempt to detect renamed binaries, dynamically constructed executable names, custom forwarding scripts, or launches performed outside Local MCP. Use a separate operating-system account or virtual machine when stronger isolation is required.
+This is an accidental-use workflow guardrail, not a sandbox. It does not attempt to detect renamed binaries, dynamically constructed executable names, custom forwarding scripts, environment-variable assignment prefixes used to reach a later executable token, or launches performed outside Local MCP. Shell-session classification is limited to cmd, PowerShell/pwsh, bash, sh, and zsh; fish and other shell families are outside this bounded classifier. Use a separate operating-system account or virtual machine when stronger isolation is required.
 
 ### Terminal sessions
 

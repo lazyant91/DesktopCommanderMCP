@@ -8,6 +8,17 @@
 
 **Tech Stack:** TypeScript 5.3, Node.js 18+, ECMAScript modules, MCP SDK result conventions, existing plain-Node test runner, Git worktrees, GitHub CLI.
 
+## PR #26 review amendment
+
+The first independent review identified three ordinary-path omissions. The approved corrections supersede narrower examples later in this original execution plan:
+
+- unquoted LF and CRLF are command-segment boundaries alongside `;`, `|`, and `&`;
+- supported `npx` and `npm exec|x` forms remain matches when CLI arguments follow the `@openai/codex` package token;
+- CMD `/k` and PowerShell/pwsh `-NoExit` sessions are classified as interactive shells, while CMD `/c` and PowerShell/pwsh `-Command` or `-File` without `-NoExit` remain `other`;
+- README wording names only cmd, PowerShell/pwsh, bash, sh, and zsh. Environment-variable assignment prefixes and fish remain explicit non-goals.
+
+No alias state, wrapper recursion, runtime-code parsing, prompt inference, or general shell grammar is added by this amendment.
+
 ## Global Constraints
 
 - Work only on `feat/codex-cli-reminder-guardrail` in `D:\AI\dcmcp-worktrees\codex-cli-reminder-guardrail`.

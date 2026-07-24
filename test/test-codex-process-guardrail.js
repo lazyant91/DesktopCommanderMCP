@@ -32,7 +32,11 @@ async function run() {
   for (const args of [
     { command: 'codex exec review', timeout_ms: 100 },
     { command: 'npx @openai/codex', timeout_ms: 100 },
+    { command: 'npx @openai/codex exec review', timeout_ms: 100 },
+    { command: 'npm exec -- @openai/codex --version', timeout_ms: 100 },
     { command: 'echo ready && codex review', timeout_ms: 100 },
+    { command: 'echo ready\ncodex exec review', timeout_ms: 100 },
+    { command: 'echo ready\r\ncodex exec review', timeout_ms: 100 },
     { command: 'echo safe', timeout_ms: 100, shell: 'codex.exe' },
   ]) {
     calls = 0;

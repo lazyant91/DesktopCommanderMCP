@@ -11,7 +11,12 @@ async function inspect(command, expected) {
 }
 
 async function run() {
-  await inspect(process.platform === 'win32' ? 'cmd.exe' : 'sh', 'shell');
+  if (process.platform === 'win32') {
+    await inspect('cmd.exe', 'shell');
+    await inspect('cmd.exe /k echo ready', 'shell');
+  } else {
+    await inspect('sh', 'shell');
+  }
   await inspect('node -i', 'other');
   console.log('Codex session-kind tests passed.');
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { classifyTerminalSession } from '../dist/codex-guardrail.js';
 import { terminalManager } from '../dist/terminal-manager.js';
 import { interactWithProcess } from '../dist/tools/improved-process-tools.js';
 
@@ -10,17 +11,32 @@ const originals = {
 let kind = 'shell';
 let sends = 0;
 
+async function assertRefused(input) {
+  sends = 0;
+  const result = await interactWithProcess({ pid: 70001, input, wait_for_prompt: false });
+  assert.equal(result.isError, true, input);
+  assert.match(result.content[0].text, /Inline Execution/);
+  assert.equal(sends, 0, input);
+}
+
 async function run() {
   terminalManager.getSession = () => ({ sessionKind: kind });
   terminalManager.captureOutputSnapshot = () => ({ totalChars: 0, lineCount: 0 });
   terminalManager.sendInputToProcess = () => { sends += 1; return true; };
 
-  sends = 0;
-  const refused = await interactWithProcess({ pid: 70001, input: 'codex exec review', wait_for_prompt: false });
-  assert.equal(refused.isError, true);
-  assert.match(refused.content[0].text, /Inline Execution/);
-  assert.equal(sends, 0);
+  await assertRefused('codex exec review');
+  await assertRefused('npx @openai/codex exec review');
+  await assertRefused('echo ready\ncodex exec review');
+  await assertRefused('echo ready\r\ncodex exec review');
 
+  kind = classifyTerminalSession('cmd.exe /k echo ready');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('powershell.exe -NoExit -Command "Write-Host ready"');
+  await assertRefused('codex exec review');
+  kind = classifyTerminalSession('pwsh -NoExit -File profile.ps1');
+  await assertRefused('codex exec review');
+
+  kind = 'shell';
   sends = 0;
   const shellData = await interactWithProcess({ pid: 70001, input: 'echo codex', wait_for_prompt: false });
   assert.equal(shellData.isError, undefined);

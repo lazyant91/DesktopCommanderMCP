@@ -50,6 +50,8 @@ The feature is deliberately a reminder and accidental-use guardrail. It must not
 - Custom forwarding programs or scripts.
 - Renamed executables.
 - Dynamic code that constructs the word `codex` at runtime.
+- Environment-variable assignments or other launcher prefixes that require skipping tokens to infer a later executable.
+- Shell families outside cmd, PowerShell/pwsh, bash, sh, and zsh, including fish.
 - Processes launched outside Local MCP.
 - A human-owned terminal session that the human operator started directly.
 
@@ -148,7 +150,7 @@ codex.cmd review
 "C:\Users\example\AppData\Roaming\npm\codex.cmd" exec review
 ```
 
-The detector may reuse the repository's existing bounded command-segment extraction for ordinary chained commands. It must not add a new shell grammar or recursive runtime parser.
+The detector splits ordinary command segments only at unquoted `;`, `|`, `&`, LF, and CRLF boundaries, then examines the first token of each segment. It does not skip environment-variable assignments or launcher prefixes to infer a later executable, and it must not add a new shell grammar or recursive runtime parser.
 
 ### Official package launch
 
@@ -156,11 +158,13 @@ Recognize only the ordinary official npm package-launch forms required by the in
 
 ```text
 npx @openai/codex
+npx @openai/codex exec review
 npm exec -- @openai/codex
+npm exec -- @openai/codex --version
 npm x -- @openai/codex
 ```
 
-A small number of normal launcher options may be supported when they occur in the conventional position, but the implementation must not grow into a general npm parser.
+Once the package token is found in the supported launcher position, trailing tokens are treated as arguments passed to the Codex CLI and do not make the launch allowable. A small number of normal launcher options may be supported when they occur in the conventional position, but the implementation must not grow into a general npm parser.
 
 Package references used for metadata operations remain allowed:
 
@@ -204,6 +208,8 @@ Only directly owned sessions that were opened as ordinary interactive shells rec
 
 - `shell`: CMD, PowerShell, pwsh, bash, sh, or zsh launched as an interactive shell;
 - `other`: REPLs, applications, scripts, builds, and unknown processes.
+
+For fixed shell-start options, CMD `/c` is `other` while CMD `/k` is `shell`. PowerShell or pwsh with `-NoExit` is `shell` even when `-Command` or `-File` supplies initial work; without `-NoExit`, those execution forms remain `other`. Do not infer interactivity from output, prompts, process lookup, or script contents.
 
 For a `shell` session, evaluate recognizable direct and official package-launch forms before calling `sendInputToProcess`.
 
@@ -269,12 +275,16 @@ Use test-driven development.
 - `codex.cmd exec review`
 - `codex.ps1 exec review`
 - quoted absolute path to `codex.cmd` or `codex.exe`
-- ordinary chained command whose actual command segment starts Codex
+- ordinary chained or multiline command whose actual command segment starts Codex
 - `npx @openai/codex`
+- `npx @openai/codex exec review`
 - `npm exec -- @openai/codex`
+- `npm exec -- @openai/codex --version`
 - `npm x -- @openai/codex`
 - explicit `start_process` shell value whose executable basename is `codex`
 - direct Codex input sent to an owned shell session
+- Codex input sent after starting CMD with `/k`
+- Codex input sent after starting PowerShell or pwsh with `-NoExit`
 - recognized launch while `blockedCommands` is empty
 
 ### Required allowed cases
@@ -286,6 +296,8 @@ Use test-driven development.
 - `rg codex README.md`
 - `npm view @openai/codex version`
 - `npm install @openai/codex --save-dev`
+- `CI=1 codex exec review`, because environment-variable assignment prefixes are not skipped
+- fish sessions, because fish is outside the bounded interactive-shell classifier
 - unrelated script inside a directory named `codex`
 - quoted string `"codex"` in Node or Python REPL input
 - prose or code examples containing the word `codex`
