@@ -16,6 +16,29 @@ import {
 } from '../utils/process-detection.js';
 import * as os from 'os';
 import { configManager } from '../config-manager.js';
+import {
+  CODEX_GUARDRAIL_MESSAGE,
+  detectCodexCliLaunch,
+  isCodexExecutable,
+} from '../codex-guardrail.js';
+
+function codexGuardrailError(): ServerResult {
+  return {
+    content: [{ type: 'text', text: CODEX_GUARDRAIL_MESSAGE }],
+    isError: true,
+  };
+}
+
+function isRecognizedCodexLaunch(command: string): boolean {
+  try {
+    return detectCodexCliLaunch(command).matched;
+  } catch (error) {
+    capture('server_codex_guardrail_error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
 
 /**
  * Start an owned local terminal process.
@@ -48,17 +71,8 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
     });
   }
 
-  const isAllowed = await commandManager.validateCommand(parsed.data.command);
-  if (!isAllowed) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: Command not allowed: ${parsed.data.command}`,
-        },
-      ],
-      isError: true,
-    };
+  if (isRecognizedCodexLaunch(parsed.data.command)) {
+    return codexGuardrailError();
   }
 
   let shellUsed: string | undefined = parsed.data.shell;
@@ -77,6 +91,23 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
         shellUsed = isWindows ? 'cmd.exe' : '/bin/sh';
       }
     }
+  }
+
+  if (shellUsed && isCodexExecutable(shellUsed)) {
+    return codexGuardrailError();
+  }
+
+  const isAllowed = await commandManager.validateCommand(parsed.data.command);
+  if (!isAllowed) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Error: Command not allowed: ${parsed.data.command}`,
+        },
+      ],
+      isError: true,
+    };
   }
 
   const result = await terminalManager.executeCommand(
@@ -298,6 +329,11 @@ export async function interactWithProcess(args: unknown): Promise<ServerResult> 
     wait_for_prompt = true,
     verbose_timing = false,
   } = parsed.data;
+
+  const session = terminalManager.getSession(pid);
+  if (session?.sessionKind === 'shell' && isRecognizedCodexLaunch(input)) {
+    return codexGuardrailError();
+  }
 
   const config = await configManager.getConfig();
   const maxOutputLines = config.fileReadLineLimit ?? 1000;
