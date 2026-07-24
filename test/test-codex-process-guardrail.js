@@ -35,6 +35,10 @@ async function run() {
     { command: 'codex exec review', timeout_ms: 100 },
     { command: '@codex exec review', timeout_ms: 100 },
     { command: '@npx @openai/codex', timeout_ms: 100 },
+    { command: '@ codex exec review', timeout_ms: 100 },
+    { command: '@ "C:\\Program Files\\Codex\\codex.cmd" review', timeout_ms: 100 },
+    { command: '@ npx @openai/codex', timeout_ms: 100 },
+    { command: '@ npm exec -- @openai/codex', timeout_ms: 100 },
     { command: 'npx -- @openai/codex', timeout_ms: 100 },
     { command: 'npx --yes -- @openai/codex@latest', timeout_ms: 100 },
     { command: 'npx @openai/codex', timeout_ms: 100 },
@@ -53,6 +57,13 @@ async function run() {
     calls = 0;
     assertReminder(await startProcess(args));
     assert.equal(calls, 0, JSON.stringify(args));
+  }
+
+  for (const command of ['@', '@ echo codex', '@ npx @openai/codex-helper@latest']) {
+    calls = 0;
+    const allowed = await startProcess({ command, timeout_ms: 100 });
+    assert.equal(allowed.isError, undefined, command);
+    assert.equal(calls, 1, command);
   }
 
   await configManager.setValue('defaultShell', 'codex.cmd');

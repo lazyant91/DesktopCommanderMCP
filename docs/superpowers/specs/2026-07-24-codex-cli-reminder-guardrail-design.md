@@ -138,7 +138,7 @@ The detector is pure, synchronous, bounded by the supplied command string, and p
 
 ### Direct executable
 
-Recognize a first executable token whose normalized basename is `codex` after removing a single leading CMD echo-control `@`, matching token quotes, and these launcher suffixes:
+Recognize a first executable token whose normalized basename is `codex` after removing one bounded CMD echo-control `@`, either attached to that executable token or present as the first standalone token, plus matching token quotes and these launcher suffixes:
 
 - `.exe`
 - `.cmd`

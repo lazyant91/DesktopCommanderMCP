@@ -173,13 +173,14 @@ function isOfficialPackageLaunch(tokens: string[]): boolean {
 export function detectCodexCliLaunch(command: string): CodexGuardrailDecision {
   for (const segment of splitCommandSegments(command)) {
     const tokens = tokenize(segment);
-    if (tokens.length === 0) continue;
+    const launchTokens = tokens[0] === '@' ? tokens.slice(1) : tokens;
+    if (launchTokens.length === 0) continue;
 
-    if (isCodexExecutable(tokens[0])) {
+    if (isCodexExecutable(launchTokens[0])) {
       return { matched: true, form: 'direct-executable' };
     }
 
-    if (isOfficialPackageLaunch(tokens)) {
+    if (isOfficialPackageLaunch(launchTokens)) {
       return { matched: true, form: 'official-package-launch' };
     }
   }

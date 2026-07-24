@@ -2,14 +2,17 @@ import assert from 'node:assert/strict';
 import { classifyTerminalSession, detectCodexCliLaunch, isCodexExecutable } from '../dist/codex-guardrail.js';
 
 const blocked = [
-  'codex', '@codex exec review', 'codex exec review', 'CODEX.EXE review', 'codex.cmd review', 'codex.ps1 review',
+  'codex', '@codex exec review', '@ codex exec review', '@  codex.cmd exec review',
+  'codex exec review', 'CODEX.EXE review', 'codex.cmd review', 'codex.ps1 review',
   "'codex.cmd' exec review", '@"C:\\Program Files\\Codex\\codex.cmd" review',
+  '@ "C:\\Program Files\\Codex\\codex.cmd" review',
   '"C:\\Program Files\\Codex\\codex.exe" review',
   'echo ready && codex review',
   'echo ready\ncodex exec review', 'echo ready\r\ncodex exec review',
   'Set-Location C:\\; codex exec review', 'Set-Location C:\\\ncodex exec review',
   "echo 'ready & codex exec review'",
-  'npx @openai/codex', '@npx @openai/codex', 'npx -- @openai/codex',
+  'npx @openai/codex', '@npx @openai/codex',
+  '@ npx @openai/codex', '@ npm exec -- @openai/codex', 'npx -- @openai/codex',
   'npx --yes @openai/codex', 'npx --yes -- @openai/codex@latest',
   'npx -y -- @openai/codex@1.2.3',
   'npx @openai/codex --version', 'npx @openai/codex exec review',
@@ -28,6 +31,7 @@ const allowed = [
   'npx @openai/codex-helper@latest', 'npm exec -- @openai/codex-tools@1.0.0',
   'node C:\\projects\\codex\\scripts\\build.js', 'node -e "console.log(\'codex\')"',
   'echo "ready\ncodex exec review"', 'CI=1 codex exec review',
+  '@', '@ echo codex', '@ npx @openai/codex-helper@latest',
   'claude --version', 'gemini --version', 'aider --version',
 ];
 for (const command of blocked) assert.equal(detectCodexCliLaunch(command).matched, true, command);

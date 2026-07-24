@@ -27,6 +27,12 @@ async function run() {
   await assertRefused('codex exec review');
   await assertRefused('@codex exec review');
   await assertRefused('@npx @openai/codex');
+
+  kind = classifyTerminalSession('cmd.exe /k echo ready');
+  await assertRefused('@ codex exec review');
+  await assertRefused('@ "C:\\Program Files\\Codex\\codex.cmd" review');
+  await assertRefused('@ npx @openai/codex');
+  await assertRefused('@ npm exec -- @openai/codex');
   await assertRefused('npx -- @openai/codex');
   await assertRefused('npx --yes -- @openai/codex@latest');
   await assertRefused('npx @openai/codex exec review');
@@ -63,6 +69,14 @@ async function run() {
   ]) {
     kind = classifyTerminalSession(command);
     await assertRefused('codex exec review');
+  }
+
+  kind = classifyTerminalSession('cmd.exe /k echo ready');
+  for (const input of ['@', '@ echo codex', '@ npx @openai/codex-helper@latest']) {
+    sends = 0;
+    const allowed = await interactWithProcess({ pid: 70001, input, wait_for_prompt: false });
+    assert.equal(allowed.isError, undefined, input);
+    assert.equal(sends, 1, input);
   }
 
   kind = 'shell';
