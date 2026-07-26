@@ -1,13 +1,22 @@
-# 프로젝트 기본 정보
+import { GetChatGPTProjectInstructionsArgsSchema } from './schemas.js';
+import type { ServerResult } from '../types.js';
 
-- 프로젝트 이름: [PROJECT_NAME]
-- GitHub 저장소: [REPOSITORY_OWNER/REPOSITORY_NAME]
-- 기본 로컬 작업공간: [WORKSPACE_ROOT]
+const PROJECT_NAME = '[PROJECT_NAME]';
+const GITHUB_REPOSITORY = '[REPOSITORY_OWNER/REPOSITORY_NAME]';
+const WORKSPACE_ROOT = '[WORKSPACE_ROOT]';
+const WRITING_START = ':::writing{variant="document"}';
+const WRITING_END = ':::';
+
+const CHATGPT_PROJECT_INSTRUCTIONS_TEMPLATE = `# 프로젝트 기본 정보
+
+- 프로젝트 이름: ${PROJECT_NAME}
+- GitHub 저장소: ${GITHUB_REPOSITORY}
+- 기본 로컬 작업공간: ${WORKSPACE_ROOT}
 
 # 기본 작업 원칙
 
-- 이 프로젝트의 기본 로컬 작업공간은 [WORKSPACE_ROOT]이다.
-- [WORKSPACE_ROOT] 및 그 하위 경로에 필요한 파일 조회, 파일 수정, 디렉터리 생성, 빌드, 테스트 및 Git 작업 권한을 승인한다.
+- 이 프로젝트의 기본 로컬 작업공간은 ${WORKSPACE_ROOT}이다.
+- ${WORKSPACE_ROOT} 및 그 하위 경로에 필요한 파일 조회, 파일 수정, 디렉터리 생성, 빌드, 테스트 및 Git 작업 권한을 승인한다.
 - 저장소의 기본 브랜치, 현재 브랜치, HEAD SHA, 작업 트리 상태 및 원격 저장소는 입력값으로 추정하지 않고 실제 Git 상태에서 확인한다.
 - 지정된 작업공간 밖에서 파일을 수정하거나 파괴적인 명령을 실행해야 할 경우에는 먼저 사용자에게 확인한다.
 - 사용자가 진행 중인 변경이나 다른 세션에서 만들어진 변경을 임의로 초기화하거나 덮어쓰거나 삭제하지 않는다.
@@ -118,4 +127,108 @@
   - 알려진 제한사항과 남은 위험
   - 작업 트리의 최종 상태
 - 파일을 수정하지 않은 조사 작업에서는 변경이 없었다는 사실을 명시한다.
-- 실제 실행 버전을 확인할 때는 Git HEAD만 보지 않고 실행 프로세스의 명령, 시작 시각 및 배치된 런타임 파일도 함께 확인한다.
+- 실제 실행 버전을 확인할 때는 Git HEAD만 보지 않고 실행 프로세스의 명령, 시작 시각 및 배치된 런타임 파일도 함께 확인한다.`;
+
+const GUIDE_TEXT = `ChatGPT 프로젝트 전역 지침은 선택 사항이지만, 웹 ChatGPT가 Remote 또는 Local MCP를 통해 로컬 작업할 때 1차 가드레일로 사용하는 것을 권장합니다.
+
+다음 중 하나를 선택해 주세요.
+
+1. 빈 템플릿 보기
+   - 프로젝트 이름, GitHub 저장소, 기본 로컬 작업공간이 placeholder로 남은 복사 가능한 템플릿을 제공합니다.
+
+2. 프로젝트 정보를 입력해 완성본 만들기
+   - 프로젝트 이름 예: VibeTutor
+   - GitHub 저장소는 소유자/저장소 형식입니다. 예: lazyant91/VibeTutor
+   - 기본 로컬 작업공간은 절대 경로입니다. 예: D:\\AI\\VibeTutor
+   - 세 값을 모두 받은 뒤 최종 확인을 거쳐 완성본을 생성합니다.
+
+웹 ChatGPT는 사용자의 선택을 먼저 확인하고, 2번을 선택한 경우 필요한 값을 차례로 질문한 뒤 최종 확인이 완료된 경우에만 generate 모드를 confirmed=true로 호출해야 합니다.`;
+
+function writingBlock(body: string): string {
+  return `${WRITING_START}\n${body}\n${WRITING_END}`;
+}
+
+function clean(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function renderTemplate(values?: {
+  projectName: string;
+  githubRepository: string;
+  workspaceRoot: string;
+}): string {
+  if (!values) return CHATGPT_PROJECT_INSTRUCTIONS_TEMPLATE;
+  return CHATGPT_PROJECT_INSTRUCTIONS_TEMPLATE
+    .split(PROJECT_NAME)
+    .join(values.projectName)
+    .split(GITHUB_REPOSITORY)
+    .join(values.githubRepository)
+    .split(WORKSPACE_ROOT)
+    .join(values.workspaceRoot);
+}
+
+function errorResult(text: string): ServerResult {
+  return {
+    content: [{ type: 'text', text }],
+    isError: true,
+  };
+}
+
+export async function getChatGPTProjectInstructions(args: unknown): Promise<ServerResult> {
+  const parsed = GetChatGPTProjectInstructionsArgsSchema.safeParse(args);
+  if (!parsed.success) {
+    return errorResult(
+      `Invalid arguments for get_chatgpt_project_instructions: ${parsed.error}`,
+    );
+  }
+
+  if (parsed.data.mode === 'guide') {
+    return { content: [{ type: 'text', text: GUIDE_TEXT }] };
+  }
+
+  if (parsed.data.mode === 'template') {
+    return {
+      content: [{ type: 'text', text: writingBlock(renderTemplate()) }],
+    };
+  }
+
+  const projectName = clean(parsed.data.project_name);
+  const githubRepository = clean(parsed.data.github_repository);
+  const workspaceRoot = clean(parsed.data.workspace_root);
+  const missing: string[] = [];
+  if (!projectName) missing.push('프로젝트 이름 (예: VibeTutor)');
+  if (!githubRepository) {
+    missing.push('GitHub 저장소 (소유자/저장소 형식, 예: lazyant91/VibeTutor)');
+  }
+  if (!workspaceRoot) {
+    missing.push('기본 로컬 작업공간 (절대 경로, 예: D:\\AI\\VibeTutor)');
+  }
+
+  if (missing.length > 0) {
+    return errorResult(
+      `완성된 프로젝트 전역 지침을 만들려면 다음 정보가 추가로 필요합니다.\n\n- ${missing.join('\n- ')}\n\n웹 ChatGPT는 누락된 값을 사용자에게 안내한 뒤 다시 호출해야 합니다.`,
+    );
+  }
+
+  if (parsed.data.confirmed !== true) {
+    return errorResult(
+      `최종 확인이 필요합니다. 다음 정보로 프로젝트 전역 지침을 생성할지 사용자에게 확인한 뒤, 동의한 경우 confirmed=true로 다시 호출하세요.\n\n- 프로젝트 이름: ${projectName}\n- GitHub 저장소: ${githubRepository}\n- 기본 로컬 작업공간: ${workspaceRoot}`,
+    );
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: writingBlock(
+          renderTemplate({
+            projectName: projectName!,
+            githubRepository: githubRepository!,
+            workspaceRoot: workspaceRoot!,
+          }),
+        ),
+      },
+    ],
+  };
+}

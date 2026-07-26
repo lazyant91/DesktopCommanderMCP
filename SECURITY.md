@@ -33,6 +33,7 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 ## Recommended operation
 
 - Connect only MCP clients and accounts you trust.
+- For web ChatGPT workflows, consider the optional project instructions returned by `get_chatgpt_project_instructions` as a first behavioral guardrail; the server does not install them or inject `AGENTS.md` automatically.
 - Run the server as a non-administrator user.
 - Restrict `allowedDirectories` to project-specific roots where practical.
 - Review destructive commands and file changes when the context warrants it.

@@ -7,6 +7,14 @@ export const SetConfigValueArgsSchema = z.object({
   value: z.union([z.string(), z.number(), z.array(z.string())]),
 });
 
+export const GetChatGPTProjectInstructionsArgsSchema = z.object({
+  mode: z.enum(['guide', 'template', 'generate']).optional().default('guide'),
+  project_name: z.string().optional(),
+  github_repository: z.string().optional(),
+  workspace_root: z.string().optional(),
+  confirmed: z.boolean().optional(),
+});
+
 export const StartProcessArgsSchema = z.object({
   command: z.string(),
   timeout_ms: z.number(),
@@ -80,6 +88,7 @@ export const InteractWithProcessArgsSchema = z.object({
 export const toolArgSchemas: Record<string, z.ZodTypeAny> = {
   get_config: GetConfigArgsSchema,
   set_config_value: SetConfigValueArgsSchema,
+  get_chatgpt_project_instructions: GetChatGPTProjectInstructionsArgsSchema,
   read_file: ReadFileArgsSchema,
   read_multiple_files: ReadMultipleFilesArgsSchema,
   write_file: WriteFileArgsSchema,

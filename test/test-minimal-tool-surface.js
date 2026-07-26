@@ -6,6 +6,7 @@ import { toolArgSchemas } from '../dist/tools/schemas.js';
 const expectedTools = [
   'get_config',
   'set_config_value',
+  'get_chatgpt_project_instructions',
   'read_file',
   'read_multiple_files',
   'write_file',
@@ -53,6 +54,17 @@ function propertiesFor(toolName) {
 }
 
 assert.deepEqual(propertiesFor('get_config'), []);
+assert.deepEqual(propertiesFor('get_chatgpt_project_instructions'), [
+  'mode',
+  'project_name',
+  'github_repository',
+  'workspace_root',
+  'confirmed',
+]);
+assert.equal(
+  definitions.get_chatgpt_project_instructions.annotations.readOnlyHint,
+  true,
+);
 assert.deepEqual(propertiesFor('read_file'), ['path', 'offset', 'length']);
 assert.deepEqual(propertiesFor('write_file'), ['path', 'content', 'mode']);
 assert.deepEqual(propertiesFor('list_directory'), ['path', 'depth']);
