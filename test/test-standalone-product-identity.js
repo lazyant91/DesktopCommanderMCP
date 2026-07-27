@@ -49,6 +49,7 @@ for (const documentPath of [
 const readme = await fs.readFile(new URL('../README.md', import.meta.url), 'utf8');
 for (const requiredTerm of [
   '[![Release]',
+  '[![Changelog]',
   'Version **1.0.1**',
   'Why this fork exists',
   'wonderwhy-er/DesktopCommanderMCP',

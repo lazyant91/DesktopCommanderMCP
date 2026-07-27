@@ -1,6 +1,7 @@
 # Local MCP Server
 
 [![Release](https://img.shields.io/github/v/release/lazyant91/DesktopCommanderMCP?display_name=tag&sort=semver)](https://github.com/lazyant91/DesktopCommanderMCP/releases)
+[![Changelog](https://img.shields.io/github/v/release/lazyant91/DesktopCommanderMCP?label=changelog&display_name=tag&sort=semver)](CHANGELOG.md)
 [![License](https://img.shields.io/github/license/lazyant91/DesktopCommanderMCP)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](package.json)
 [![MCP transport](https://img.shields.io/badge/MCP-stdio-5A67D8)](#architecture)
