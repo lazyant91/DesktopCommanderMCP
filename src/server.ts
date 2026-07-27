@@ -11,11 +11,9 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import { VERSION } from './version.js';
 import { getConfig, setConfigValue } from './tools/config.js';
-import { getChatGPTProjectInstructions } from './tools/chatgpt-project-instructions.js';
 import {
   CreateDirectoryArgsSchema,
   ForceTerminateArgsSchema,
-  GetChatGPTProjectInstructionsArgsSchema,
   GetConfigArgsSchema,
   GetFileInfoArgsSchema,
   InteractWithProcessArgsSchema,
@@ -64,17 +62,6 @@ export const toolDefinitions = [
       title: 'Set Configuration Value',
       readOnlyHint: false,
       destructiveHint: true,
-      openWorldHint: false,
-    },
-  },
-  {
-    name: 'get_chatgpt_project_instructions',
-    description:
-      'Guide the user through optional ChatGPT project instructions, return a blank template, or generate a confirmed copy-ready writing block.',
-    inputSchema: zodToJsonSchema(GetChatGPTProjectInstructionsArgsSchema),
-    annotations: {
-      title: 'Get ChatGPT Project Instructions',
-      readOnlyHint: true,
       openWorldHint: false,
     },
   },
@@ -253,7 +240,6 @@ type ToolHandler = (args: unknown) => Promise<ServerResult>;
 const toolHandlers: Record<string, ToolHandler> = {
   get_config: async () => getConfig(),
   set_config_value: setConfigValue,
-  get_chatgpt_project_instructions: getChatGPTProjectInstructions,
   read_file: handleReadFile,
   read_multiple_files: handleReadMultipleFiles,
   write_file: handleWriteFile,

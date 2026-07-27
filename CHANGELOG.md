@@ -8,7 +8,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- Added the read-only `get_chatgpt_project_instructions` tool, which guides optional ChatGPT project instructions setup and returns blank or confirmed copy-ready writing blocks without modifying local files or ChatGPT settings.
 - Added a thin Codex CLI reminder that refuses only documented obvious first-position `start_process` launches.
 
 ### Security
