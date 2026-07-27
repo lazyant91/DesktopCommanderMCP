@@ -7,7 +7,7 @@
 
 A standalone, client-agnostic Model Context Protocol server for local terminal sessions, text files, directories, and local configuration.
 
-Version **1.0.0** is the first stable release of this independent lightweight fork. The repository name is retained for fork history, while the package and MCP server identity are `@lazyant91/local-mcp-server` and `local-mcp-server`.
+Version **1.0.1** is the current stable release of this independent lightweight fork. Version **1.0.0** established the first stable release. The repository name is retained for fork history, while the package and MCP server identity are `@lazyant91/local-mcp-server` and `local-mcp-server`.
 
 ## Why this fork exists
 
@@ -17,7 +17,7 @@ The upstream project had grown into a broad product with remote services, analyt
 
 The result is a headless stdio MCP server with a fixed surface of 15 tools. It does not depend on a hosted backend and does not provide a gateway, tunnel, browser bridge, embedded UI, telemetry, onboarding, or client-specific installation flow.
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete attribution record and [CHANGELOG.md](CHANGELOG.md) for the v1.0.0 change summary.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete attribution record and [CHANGELOG.md](CHANGELOG.md) for the v1.0.1 change summary.
 
 ## What changed after the fork
 

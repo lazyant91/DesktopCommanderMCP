@@ -54,7 +54,7 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 
 ## Dependency and release policy
 
-The v1.0.0 dependency graph is recorded in `package-lock.json`. Release validation is performed locally on the exact `main` SHA used for the release tag. GitHub Actions are not used as a security or release gate in this repository.
+The v1.0.1 dependency graph is recorded in `package-lock.json`. Release validation is performed locally on the exact `main` SHA used for the release tag. GitHub Actions are not used as a security or release gate in this repository.
 
 A version badge or passing test suite does not guarantee that the server is safe for every environment. Users remain responsible for account permissions, network policy, client trust, and isolation.
 

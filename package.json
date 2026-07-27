@@ -1,6 +1,6 @@
 {
   "name": "@lazyant91/local-mcp-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Standalone stdio MCP server for local terminal sessions and filesystem operations",
   "mcpName": "io.github.lazyant91/local-mcp-server",
   "license": "MIT",
