@@ -6,13 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-27
+
+Maintenance release adding a thin Codex CLI reminder for web ChatGPT workflows that use Remote or Local MCP.
+
 ### Added
 
-- Added a thin Codex CLI reminder that refuses only documented obvious first-position `start_process` launches.
+- Added a bounded pre-execution reminder in `start_process` for obvious direct Codex CLI launches.
+- Recognized direct `codex`, `codex.exe`, `codex.cmd`, and `codex.ps1` executables, fixed npm/npx package-launch forms, and explicit or configured Codex shell executables.
+- Added detector, process-level, and documentation contract tests for the supported refusal boundary.
 
 ### Security
 
-- Documented the reminder as an accidental-use stop line rather than a complete block, sandbox, or hostile-caller security boundary.
+- Refused recognized Codex launches before command validation or process creation.
+- Documented the reminder as an accidental-use stop line rather than a complete block, sandbox, hostile-caller defense, or security boundary.
+- Kept chained or later commands, multiline follow-up commands, aliases, wrappers, scripts, environment prefixes, CMD `@`, versioned package specifications, and `interact_with_process` input outside the intentionally narrow scope.
 
 ## [1.0.0] - 2026-07-21
 
@@ -74,4 +82,6 @@ First stable release of the standalone Local MCP Server fork.
 
 The release process requires an independent review, a clean build, all unit and integration tests, package inspection, configuration preservation, process cleanup checks, and final validation on the exact `main` SHA used for the tag.
 
+[Unreleased]: https://github.com/lazyant91/DesktopCommanderMCP/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/lazyant91/DesktopCommanderMCP/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lazyant91/DesktopCommanderMCP/releases/tag/v1.0.0

@@ -75,6 +75,6 @@ for (const obsoleteClaim of [
 
 const lockfile = JSON.parse(await fs.readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
 assert.equal(lockfile.name, '@lazyant91/local-mcp-server');
-assert.equal(lockfile.version, '1.0.0');
+assert.equal(lockfile.version, '1.0.1');
 
 console.log('Repository development surface contract passed');

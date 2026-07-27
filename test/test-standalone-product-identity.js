@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 
 const packageJson = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
 assert.equal(packageJson.name, '@lazyant91/local-mcp-server');
-assert.equal(packageJson.version, '1.0.0');
+assert.equal(packageJson.version, '1.0.1');
 assert.equal(packageJson.mcpName, 'io.github.lazyant91/local-mcp-server');
 assert.deepEqual(packageJson.bin, { 'local-mcp-server': 'dist/index.js' });
 assert.equal(packageJson.repository.url, 'https://github.com/lazyant91/DesktopCommanderMCP.git');
@@ -16,7 +16,7 @@ for (const sourcePath of ['../src/server.ts', '../src/index.ts', '../src/utils/l
 }
 
 const versionSource = await fs.readFile(new URL('../src/version.ts', import.meta.url), 'utf8');
-assert.equal(versionSource.includes("VERSION = '1.0.0'"), true);
+assert.equal(versionSource.includes("VERSION = '1.0.1'"), true);
 
 const configSource = await fs.readFile(new URL('../src/config.ts', import.meta.url), 'utf8');
 assert.equal(configSource.includes("'.local-mcp-server'"), true);
@@ -49,7 +49,7 @@ for (const documentPath of [
 const readme = await fs.readFile(new URL('../README.md', import.meta.url), 'utf8');
 for (const requiredTerm of [
   '[![Release]',
-  'Version **1.0.0**',
+  'Version **1.0.1**',
   'Why this fork exists',
   'wonderwhy-er/DesktopCommanderMCP',
   'Installation from source',
@@ -73,6 +73,7 @@ assert.equal(stdio.includes('notifications/message'), true);
 assert.equal(stdio.includes('Desktop Commander'), false);
 
 const changelog = await fs.readFile(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+assert.equal(changelog.includes('## [1.0.1] - 2026-07-27'), true);
 assert.equal(changelog.includes('## [1.0.0] - 2026-07-21'), true);
 assert.equal(changelog.includes('78f8f4b1cd35ccca8af4a1208f196a0466dc39b0'), true);
 
