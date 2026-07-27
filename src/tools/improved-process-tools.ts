@@ -16,6 +16,18 @@ import {
 } from '../utils/process-detection.js';
 import * as os from 'os';
 import { configManager } from '../config-manager.js';
+import {
+  CODEX_REMINDER_MESSAGE,
+  isCodexExecutable,
+  isObviousCodexLaunch,
+} from '../codex-reminder.js';
+
+function codexReminderError(): ServerResult {
+  return {
+    content: [{ type: 'text', text: CODEX_REMINDER_MESSAGE }],
+    isError: true,
+  };
+}
 
 /**
  * Start an owned local terminal process.
@@ -34,6 +46,32 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
       ],
       isError: true,
     };
+  }
+
+  let shellUsed: string | undefined = parsed.data.shell;
+
+  if (!shellUsed) {
+    const config = await configManager.getConfig();
+    if (config.defaultShell) {
+      shellUsed = config.defaultShell;
+    } else {
+      const isWindows = os.platform() === 'win32';
+      if (isWindows && process.env.COMSPEC) {
+        shellUsed = process.env.COMSPEC;
+      } else if (!isWindows && process.env.SHELL) {
+        shellUsed = process.env.SHELL;
+      } else {
+        shellUsed = isWindows ? 'cmd.exe' : '/bin/sh';
+      }
+    }
+  }
+
+  try {
+    if (isObviousCodexLaunch(parsed.data.command) || isCodexExecutable(shellUsed)) {
+      return codexReminderError();
+    }
+  } catch (error) {
+    console.error('Failed to evaluate the thin Codex reminder; continuing:', error);
   }
 
   try {
@@ -59,24 +97,6 @@ export async function startProcess(args: unknown): Promise<ServerResult> {
       ],
       isError: true,
     };
-  }
-
-  let shellUsed: string | undefined = parsed.data.shell;
-
-  if (!shellUsed) {
-    const config = await configManager.getConfig();
-    if (config.defaultShell) {
-      shellUsed = config.defaultShell;
-    } else {
-      const isWindows = os.platform() === 'win32';
-      if (isWindows && process.env.COMSPEC) {
-        shellUsed = process.env.COMSPEC;
-      } else if (!isWindows && process.env.SHELL) {
-        shellUsed = process.env.SHELL;
-      } else {
-        shellUsed = isWindows ? 'cmd.exe' : '/bin/sh';
-      }
-    }
   }
 
   const result = await terminalManager.executeCommand(
