@@ -186,6 +186,14 @@ Use `get_config` and `set_config_value` while the server is running. Configurati
 
 This is a thin accidental-use stop line, not a complete block, sandbox, or security boundary. It does not inspect chained or later commands, multiline second commands, environment prefixes, CMD `@`, aliases, wrappers, scripts, versioned package specs, or input sent through `interact_with_process`. A human-direct Codex session started separately in a local terminal is untouched.
 
+### PowerShell and CMD directory delete guard
+
+Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks its bounded supported syntax and resolves each literal target path. Routine explicit deletions such as `Remove-Item .\dist -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
+
+Malformed quoting, missing paths, unsupported deletion options, PowerShell variable targets, and CMD environment-variable targets are refused with an actionable error. Any target that resolves to a drive root, filesystem root, or UNC share root is always refused. The same check is applied to input sent to owned PowerShell or CMD sessions.
+
+This feature is an accidental-error guardrail, not a general shell parser, sandbox, or hostile-caller defense. Nested interpreters, scripts, Node.js or Python filesystem APIs, and other indirect deletion mechanisms remain outside its scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
+
 ### Terminal sessions
 
 `start_process` returns initial output and a server-owned session identifier. A command can continue running after the initial timeout and later be observed with `read_process_output`. Interactive shells and REPLs can receive input through `interact_with_process`.
