@@ -87,3 +87,12 @@ First stable release of the standalone Local MCP Server fork.
 - No hosted backend or account system is required
 - Structured file roots and command blocking are documented as guardrails, not a sandbox
 - Tool results are sent only to the connected MCP client in response to tool calls
+- Terminal commands retain the permissions and network access of the launching operating-system user
+
+### Validation
+
+The release process requires an independent review, a clean build, all unit and integration tests, package inspection, configuration preservation, process cleanup checks, and final validation on the exact `main` SHA used for the tag.
+
+[Unreleased]: https://github.com/lazyant91/DesktopCommanderMCP/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/lazyant91/DesktopCommanderMCP/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/lazyant91/DesktopCommanderMCP/releases/tag/v1.0.0
