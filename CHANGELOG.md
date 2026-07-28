@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- Added a bounded PowerShell/CMD directory deletion syntax guard for initial terminal commands and input sent to owned interactive sessions.
+- Added focused tests for routine deletions, malformed quoting, dynamic targets, unsupported options, chained commands, and filesystem-root targets.
+
+### Security
+
+- Filesystem-root targets are refused for every recognized PowerShell or CMD directory deletion form before the underlying command or interactive input is executed.
+- Dynamic or ambiguous directory targets are refused with an actionable error so routine cleanup can be retried with an explicit literal path.
+- The guard remains an accidental-error stop line rather than a sandbox or hostile-caller defense; nested interpreters, scripts, and non-shell filesystem APIs remain outside its scope.
+
 ## [1.0.1] - 2026-07-27
 
 Maintenance release adding a thin Codex CLI reminder for web ChatGPT workflows that use Remote or Local MCP.
@@ -76,12 +87,3 @@ First stable release of the standalone Local MCP Server fork.
 - No hosted backend or account system is required
 - Structured file roots and command blocking are documented as guardrails, not a sandbox
 - Tool results are sent only to the connected MCP client in response to tool calls
-- Terminal commands retain the permissions and network access of the launching operating-system user
-
-### Validation
-
-The release process requires an independent review, a clean build, all unit and integration tests, package inspection, configuration preservation, process cleanup checks, and final validation on the exact `main` SHA used for the tag.
-
-[Unreleased]: https://github.com/lazyant91/DesktopCommanderMCP/compare/v1.0.1...HEAD
-[1.0.1]: https://github.com/lazyant91/DesktopCommanderMCP/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/lazyant91/DesktopCommanderMCP/releases/tag/v1.0.0
