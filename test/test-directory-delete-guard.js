@@ -10,6 +10,11 @@ assert.equal(classifyDirectoryDeleteShell('C:\\Windows\\System32\\cmd.exe'), 'cm
 assert.equal(classifyDirectoryDeleteShell('/bin/bash'), 'other');
 
 const cwd = 'Z:\\workspace\\DesktopCommanderMCP';
+const incidentCommand = String.raw`$featurePath='D:\AI\WebService\VibeTutor\learnrepo\.worktrees\codex-oauth-provider-pr1'
+
+if (Test-Path $featurePath) {
+    cmd /c "rmdir /s /q \"$featurePath\""
+}`;
 
 for (const command of [
   'Remove-Item "D:\\" -Recurse -Force',
@@ -34,6 +39,7 @@ for (const command of [
 for (const command of [
   'Remove-Item ".\\dist" -Recurse -Force',
   'Remove-Item -LiteralPath "Z:\\workspace\\DesktopCommanderMCP\\cache" -Recurse',
+  "Remove-Item -LiteralPath 'Z:\\workspace\\DesktopCommanderMCP\\stale' -Recurse -Force -ErrorAction SilentlyContinue",
   'Remove-Item "Z:\\workspace\\DesktopCommanderMCP\\comma,name" -Recurse',
   "Remove-Item 'Z:\\workspace\\DesktopCommanderMCP\\$literal' -Recurse",
   'rmdir "Z:\\workspace\\DesktopCommanderMCP\\temp" -Recurse',
@@ -48,6 +54,7 @@ for (const command of [
   'Remove-Item "$target" -Recurse -Force',
   'Remove-Item "Z:\\workspace\\temp -Recurse',
   'Remove-Item -Recurse',
+  "Remove-Item 'Z:\\workspace\\one' 'Z:\\workspace\\two' -Recurse -Force",
   'rm -rf .\\dist',
 ]) {
   const result = validateDirectoryDeleteCommand(command, 'powershell.exe', cwd);
@@ -93,6 +100,78 @@ for (const command of [
   const result = validateDirectoryDeleteCommand(command, 'cmd.exe', cwd);
   assert.equal(result.detected, true, command);
   assert.equal(result.allowed, false, command);
+}
+
+for (const command of [
+  incidentCommand,
+  "cmd /c 'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
+  "cmd.exe /d /s /c 'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
+  "cmd.exe /d /s /c'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
+  "if (Test-Path -LiteralPath 'D:\\AI\\project\\.worktrees\\feature') { Remove-Item -LiteralPath 'D:\\AI\\project\\.worktrees\\feature' -Recurse -Force }",
+  String.raw`if (Test-Path -LiteralPath 'D:\AI\project\.worktrees\feature') {
+    Remove-Item -LiteralPath 'D:\AI\project\.worktrees\feature' -Recurse -Force
+}`,
+]) {
+  const result = validateDirectoryDeleteCommand(command, 'powershell.exe', cwd);
+  assert.equal(result.detected, true, command);
+  assert.equal(result.allowed, false, command);
+  assert.equal(result.reason, 'unsupported-context', command);
+  assert.match(formatDirectoryDeleteGuardError(result), /direct literal-path deletion command/i);
+}
+
+for (const command of [
+  'powershell.exe -Command "Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
+  'powershell.exe -NoProfile -NonInteractive -Command "Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
+  'powershell.exe -NoProfile -Command"Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
+  '@powershell.exe /c "Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
+  '(rmdir /s /q "D:\\AI\\project\\.worktrees\\feature")',
+  String.raw`if exist "D:\AI\project\.worktrees\feature" (
+    rmdir /s /q "D:\AI\project\.worktrees\feature"
+)`,
+]) {
+  const result = validateDirectoryDeleteCommand(command, 'cmd.exe', cwd);
+  assert.equal(result.detected, true, command);
+  assert.equal(result.allowed, false, command);
+  assert.equal(result.reason, 'unsupported-context', command);
+}
+
+for (const [command, shell] of [
+  ['cmd /c "rmdir /s /q D:\\AI\\project\\temp', 'powershell.exe'],
+  [
+    'powershell.exe -Command "Remove-Item -LiteralPath \'D:\\AI\\project\\temp\' -Recurse -Force',
+    'cmd.exe',
+  ],
+]) {
+  const result = validateDirectoryDeleteCommand(command, shell, cwd);
+  assert.equal(result.detected, true, command);
+  assert.equal(result.allowed, false, command);
+  assert.equal(result.reason, 'invalid-syntax', command);
+}
+
+for (const command of [
+  "Write-Output 'Example: rmdir /s /q D:\\temp'",
+  'Write-Output "Example: Remove-Item D:\\temp -Recurse"',
+  'Get-Item rmdir',
+  'Test-Path Remove-Item',
+  "cmd /c 'echo ready'",
+  "cmd /c 'echo rmdir /s /q D:\\temp'",
+  "cmd.exe /d /s /c 'echo rmdir /s /q D:\\temp'",
+]) {
+  assert.equal(
+    validateDirectoryDeleteCommand(command, 'powershell.exe', cwd).detected,
+    false,
+    command,
+  );
+}
+
+for (const command of [
+  'echo rmdir /s /q D:\\temp',
+  'dir rmdir',
+  'powershell.exe -Command "Write-Output ready"',
+  'powershell.exe -Command "Write-Output rmdir"',
+  'powershell.exe -NoProfile -NonInteractive -Command "Write-Output rmdir"',
+]) {
+  assert.equal(validateDirectoryDeleteCommand(command, 'cmd.exe', cwd).detected, false, command);
 }
 
 assert.equal(

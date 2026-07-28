@@ -188,11 +188,13 @@ This is a thin accidental-use stop line, not a complete block, sandbox, or secur
 
 ### PowerShell and CMD directory delete guard
 
-Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks its bounded supported syntax and resolves each literal target path. Routine explicit deletions such as `Remove-Item .\dist -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
+Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks a bounded, deterministic grammar. Only a direct deletion in the active shell with exactly one explicit literal target can pass. Routine commands such as `Remove-Item -LiteralPath '.\dist' -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
 
-Malformed quoting, missing paths, unsupported deletion options, PowerShell variable targets, and CMD environment-variable targets are refused with an actionable error. Any target that resolves to a drive root, filesystem root, or UNC share root is always refused. CMD `rd`/`rmdir` also accepts one bounded leading echo-control prefix (`@rd` or `@ rd`). The same check is applied to input sent to owned PowerShell or CMD sessions.
+Malformed quoting, missing or multiple paths, unsupported deletion options, PowerShell variable targets, CMD environment-variable targets, filesystem roots, and root wildcards are refused before process creation or interactive stdin delivery. CMD `rd`/`rmdir` accepts one bounded leading echo-control prefix (`@rd` or `@ rd`).
 
-This feature is an accidental-error guardrail, not a general shell parser, sandbox, or hostile-caller defense. Parenthesized CMD command groups, nested interpreters, scripts, Node.js or Python filesystem APIs, and other indirect deletion mechanisms remain outside its scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
+Directory-delete intent inside PowerShell or CMD control flow, command groups, or nested interpreters is also refused. This includes PowerShell-to-CMD forms such as `cmd /c "rmdir ..."` and CMD-to-PowerShell forms such as `powershell -Command "Remove-Item ..."`, even when their final path appears static. Retry with one direct literal-path deletion command in the current shell; for PowerShell existence tolerance, use `-ErrorAction SilentlyContinue` instead of wrapping deletion in an `if` block.
+
+This feature is an accidental-error guardrail, not a complete PowerShell/CMD parser, sandbox, or hostile-caller defense. Script files, encoded or generated commands, shell functions, alternate deletion programs, and Node.js or Python filesystem APIs remain outside its bounded inspection scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
 
 ### Terminal sessions
 

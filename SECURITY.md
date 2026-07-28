@@ -25,7 +25,7 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
 | Exact edit matching | Prevent ambiguous text replacements | No |
 | Thin direct Codex reminder | Reduce accidental local Codex starts through `start_process` | No |
-| PowerShell/CMD directory delete guard | Reject malformed or dynamic directory-delete targets and all filesystem-root targets | No |
+| PowerShell/CMD directory delete guard | Allow only direct single-literal directory deletions and reject ambiguous, compound, nested, dynamic, or root-target forms | No |
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
@@ -44,9 +44,10 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 
 ## Known limitations
 
-- The PowerShell/CMD directory delete guard is an accidental-error stop line. It recognizes documented direct `Remove-Item`, `rm`, `ri`, `rd`, and `rmdir` directory forms for PowerShell and direct `rd` and `rmdir` forms for CMD, including one bounded leading CMD echo-control prefix (`@rd` or `@ rd`).
-- The directory delete guard does not inspect parenthesized CMD command groups, nested interpreters, script files, Node.js or Python filesystem APIs, shell functions, or commands executed by other programs. It is not a sandbox or hostile-caller defense.
-- Dynamic directory targets such as PowerShell variables and CMD environment-variable expansion are rejected so the target can be checked before execution. Use an explicit literal path for guarded directory deletion.
+- The PowerShell/CMD directory delete guard is an accidental-error stop line. It permits only documented direct `Remove-Item`, `rm`, `ri`, `rd`, and `rmdir` directory forms for PowerShell and direct `rd` and `rmdir` forms for CMD, with exactly one explicit literal target. CMD permits one bounded leading echo-control prefix (`@rd` or `@ rd`).
+- Directory-delete intent found inside PowerShell/CMD control flow, command groups, or nested `cmd`/`powershell`/`pwsh` interpreter payloads is rejected rather than reinterpreted. This intentionally blocks static-looking cross-shell deletion commands as well as dynamic ones.
+- Dynamic directory targets, malformed quoting, unsupported shell escapes or options, multiple targets, filesystem roots, and root wildcards are rejected so the final target does not depend on agent reasoning or cross-shell quoting assumptions.
+- The guard does not inspect script-file contents, encoded or generated commands, shell functions, alternate deletion programs, Node.js or Python filesystem APIs, or commands hidden by arbitrary code generation. It is not a sandbox or hostile-caller defense.
 - Interactive input is checked only for PowerShell or CMD sessions started through this server after the guard is installed. Relative paths are resolved from the session's starting working directory rather than tracking later `cd` or `Set-Location` changes.
 - The thin Codex reminder inspects only the documented first-position `start_process` forms. It does not inspect chained or multiline-later commands, aliases, wrappers, scripts, environment prefixes, hostile bypasses, or input sent through `interact_with_process`; it is a thin accidental-use stop line, not a complete block or security boundary.
 - `allowedDirectories` does not constrain arbitrary terminal commands.

@@ -4,7 +4,8 @@ export type DirectoryDeleteShell = 'powershell' | 'cmd' | 'other';
 export type DirectoryDeleteBlockReason =
   | 'invalid-syntax'
   | 'dynamic-target'
-  | 'filesystem-root';
+  | 'filesystem-root'
+  | 'unsupported-context';
 
 export interface DirectoryDeleteValidation {
   detected: boolean;
@@ -29,6 +30,32 @@ interface ShellToken {
 const POWERSHELL_DELETE = new Set(['remove-item', 'rm', 'ri', 'rd', 'rmdir']);
 const POWERSHELL_DIRECTORY_ALIAS = new Set(['rd', 'rmdir']);
 const CMD_DELETE = new Set(['rd', 'rmdir']);
+const POWERSHELL_OUTPUT = new Set(['echo', 'write-host', 'write-output']);
+const CMD_OUTPUT = new Set(['echo']);
+const POWERSHELL_CONTROL = new Set([
+  'catch',
+  'do',
+  'else',
+  'elseif',
+  'finally',
+  'for',
+  'foreach',
+  'if',
+  'switch',
+  'trap',
+  'try',
+  'while',
+]);
+const CMD_CONTROL = new Set(['for', 'if']);
+const POWERSHELL_INTERPRETERS = new Set([
+  'powershell',
+  'powershell.exe',
+  'pwsh',
+  'pwsh.exe',
+]);
+const CMD_INTERPRETERS = new Set(['cmd', 'cmd.exe']);
+const UNSUPPORTED_CONTEXT_DETAIL =
+  'Directory deletion inside compound or nested shell syntax is not allowed. Use one direct literal-path deletion command in the active shell.';
 
 function basename(value: string): string {
   return path.win32.basename(path.posix.basename(value.trim())).toLowerCase();
@@ -45,10 +72,11 @@ export function classifyDirectoryDeleteShell(
 }
 
 function hasDeleteKeyword(command: string, shell: DirectoryDeleteShell): boolean {
-  const pattern =
-    shell === 'powershell'
-      ? /(?:^|[\s;&|])(?:remove-item|rm|ri|rd|rmdir)(?=$|[\s;&|])/i
-      : /(?:^|[\s&|])@?(?:rd|rmdir)(?=$|[\s&|])/i;
+  const prefix = shell === 'cmd' ? '@?' : '';
+  const pattern = new RegExp(
+    `(?:^|[\\s;&|"'({])${prefix}(?:remove-item|rm|ri|rd|rmdir)(?=$|[\\s;&|"'})])`,
+    'i',
+  );
   return pattern.test(command);
 }
 
@@ -190,6 +218,188 @@ function tokenize(segment: string, shell: DirectoryDeleteShell): ParseResult<She
   return { value: tokens };
 }
 
+function normalizedCommandName(
+  token: ShellToken | undefined,
+  shell: DirectoryDeleteShell,
+): string {
+  let value = token?.value.trim() ?? '';
+  if (shell === 'cmd' && value.startsWith('@')) value = value.slice(1);
+  value = value.replace(/^[({]+/, '').replace(/[)}]+$/, '');
+  return basename(value);
+}
+
+function firstCommandIndex(tokens: ShellToken[], shell: DirectoryDeleteShell): number {
+  return shell === 'cmd' && tokens[0]?.value === '@' ? 1 : 0;
+}
+
+function isOutputOnlySegment(tokens: ShellToken[], shell: DirectoryDeleteShell): boolean {
+  const command = normalizedCommandName(tokens[firstCommandIndex(tokens, shell)], shell);
+  return shell === 'powershell'
+    ? POWERSHELL_OUTPUT.has(command)
+    : shell === 'cmd' && CMD_OUTPUT.has(command);
+}
+
+function commandCandidateIndexes(
+  tokens: ShellToken[],
+  shell: DirectoryDeleteShell,
+): number[] {
+  const first = firstCommandIndex(tokens, shell);
+  if (!tokens[first]) return [];
+
+  const command = normalizedCommandName(tokens[first], shell);
+  const control =
+    shell === 'powershell'
+      ? POWERSHELL_CONTROL.has(command)
+      : shell === 'cmd' && CMD_CONTROL.has(command);
+  const grouped = tokens.some((token) => {
+    if (token.quote) return false;
+    return shell === 'powershell'
+      ? token.value.includes('{') || token.value.includes('}')
+      : shell === 'cmd' && (token.value.includes('(') || token.value.includes(')'));
+  });
+  if (!control && !grouped) return [first];
+
+  const indexes = [first];
+  for (let i = first + 1; i < tokens.length; i += 1) {
+    if (!tokens[i].quote) indexes.push(i);
+  }
+  return indexes;
+}
+
+function isDirectoryDeleteCommandAt(
+  tokens: ShellToken[],
+  index: number,
+  shell: DirectoryDeleteShell,
+): boolean {
+  const command = normalizedCommandName(tokens[index], shell);
+  if (shell === 'cmd') return CMD_DELETE.has(command);
+  if (shell !== 'powershell' || !POWERSHELL_DELETE.has(command)) return false;
+  if (POWERSHELL_DIRECTORY_ALIAS.has(command)) return true;
+  return tokens.slice(index + 1).some((token) => {
+    if (token.quote) return false;
+    const value = token.value.toLowerCase();
+    return value === '-recurse' || value === '-r';
+  });
+}
+
+function hasUnquotedDirectoryDeleteIntent(
+  tokens: ShellToken[],
+  shell: DirectoryDeleteShell,
+): boolean {
+  return commandCandidateIndexes(tokens, shell).some((index) =>
+    isDirectoryDeleteCommandAt(tokens, index, shell),
+  );
+}
+
+function nestedInterpreterShell(command: string): DirectoryDeleteShell | undefined {
+  if (CMD_INTERPRETERS.has(command)) return 'cmd';
+  if (POWERSHELL_INTERPRETERS.has(command)) return 'powershell';
+  return undefined;
+}
+
+function isNestedInterpreterSwitch(
+  value: string,
+  nestedShell: DirectoryDeleteShell,
+): boolean {
+  const lower = value.toLowerCase();
+  return nestedShell === 'cmd'
+    ? lower === '/c' || lower === '/k'
+    : lower === '-command' || lower === '-c' || lower === '/c';
+}
+
+function nestedInterpreterPayload(
+  tokens: ShellToken[],
+  commandIndex: number,
+  nestedShell: DirectoryDeleteShell,
+): string | undefined {
+  const switches =
+    nestedShell === 'cmd' ? ['/c', '/k'] : ['-command', '-c', '/c'];
+  for (let i = commandIndex + 1; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token.quote) continue;
+    if (isNestedInterpreterSwitch(token.value, nestedShell)) {
+      return tokens
+        .slice(i + 1)
+        .map((item) => item.value)
+        .join(' ')
+        .trim();
+    }
+
+    const lower = token.value.toLowerCase();
+    const attachedSwitch = switches.find(
+      (candidate) => lower.startsWith(candidate) && lower.length > candidate.length,
+    );
+    if (!attachedSwitch) continue;
+    return [token.value.slice(attachedSwitch.length), ...tokens.slice(i + 1).map((item) => item.value)]
+      .join(' ')
+      .trim();
+  }
+  return undefined;
+}
+
+function hasNestedDirectoryDeleteIntent(
+  tokens: ShellToken[],
+  outerShell: DirectoryDeleteShell,
+): boolean {
+  for (const index of commandCandidateIndexes(tokens, outerShell)) {
+    const command = normalizedCommandName(tokens[index], outerShell);
+    const nestedShell = nestedInterpreterShell(command);
+    if (!nestedShell) continue;
+
+    const payload = nestedInterpreterPayload(tokens, index, nestedShell);
+    if (payload && hasDirectoryDeleteIntent(payload, nestedShell)) return true;
+  }
+  return false;
+}
+
+function hasDirectoryDeleteIntent(
+  segment: string,
+  shell: DirectoryDeleteShell,
+): boolean {
+  const parsed = tokenize(segment, shell);
+  if (parsed.error) return hasDeleteKeyword(segment, shell);
+  const tokens = parsed.value ?? [];
+  if (tokens.length === 0 || isOutputOnlySegment(tokens, shell)) return false;
+  return (
+    hasUnquotedDirectoryDeleteIntent(tokens, shell) ||
+    hasNestedDirectoryDeleteIntent(tokens, shell)
+  );
+}
+
+function hasCompoundGrouping(
+  command: string,
+  shell: DirectoryDeleteShell,
+): boolean {
+  let quote: "'" | '"' | undefined;
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i];
+    if (quote) {
+      if (
+        shell === 'powershell' &&
+        quote === "'" &&
+        char === "'" &&
+        command[i + 1] === "'"
+      ) {
+        i += 1;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (
+      (shell === 'powershell' && (char === '"' || char === "'")) ||
+      (shell === 'cmd' && char === '"')
+    ) {
+      quote = char;
+      continue;
+    }
+    if (shell === 'powershell' && (char === '{' || char === '}')) return true;
+    if (shell === 'cmd' && (char === '(' || char === ')')) return true;
+  }
+  return false;
+}
+
 function blocked(
   shell: DirectoryDeleteShell,
   reason: DirectoryDeleteBlockReason,
@@ -315,11 +525,13 @@ function validatePowerShell(
     }
   }
 
-  if (targets.length === 0) {
+  if (targets.length !== 1) {
     return blocked(
       'powershell',
       'invalid-syntax',
-      'The directory deletion command is missing its target path.',
+      targets.length === 0
+        ? 'The directory deletion command is missing its target path.'
+        : 'PowerShell directory deletion accepts exactly one literal target.',
     );
   }
 
@@ -396,12 +608,29 @@ export function validateDirectoryDeleteCommand(
   }
 
   let detected = false;
+  const compoundContext = hasCompoundGrouping(command, shell);
   for (const segment of segments.value ?? []) {
     const result =
       shell === 'powershell' ? validatePowerShell(segment, cwd) : validateCmd(segment, cwd);
-    if (!result) continue;
-    detected = true;
-    if (!result.allowed) return result;
+    if (result) {
+      detected = true;
+      if (!result.allowed) return result;
+      if (compoundContext && hasDirectoryDeleteIntent(segment, shell)) {
+        return blocked(
+          shell,
+          'unsupported-context',
+          UNSUPPORTED_CONTEXT_DETAIL,
+        );
+      }
+      continue;
+    }
+    if (hasDirectoryDeleteIntent(segment, shell)) {
+      return blocked(
+        shell,
+        'unsupported-context',
+        UNSUPPORTED_CONTEXT_DETAIL,
+      );
+    }
   }
   return detected
     ? { detected: true, allowed: true, shell }

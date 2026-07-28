@@ -23,6 +23,22 @@ const manager = {
 installDirectoryDeleteGuard(manager);
 installDirectoryDeleteGuard(manager);
 
+const incidentCommand = String.raw`$featurePath='D:\AI\WebService\VibeTutor\learnrepo\.worktrees\codex-oauth-provider-pr1'
+
+if (Test-Path $featurePath) {
+    cmd /c "rmdir /s /q \"$featurePath\""
+}`;
+
+const blockedIncident = await manager.executeCommand(
+  incidentCommand,
+  100,
+  'powershell.exe',
+  false,
+);
+assert.equal(blockedIncident.pid, -1);
+assert.match(blockedIncident.output, /direct literal-path deletion command/i);
+assert.equal(executeCalls, 0);
+
 const blockedStart = await manager.executeCommand(
   'Remove-Item Z:\\ -Recurse -Force',
   100,
@@ -55,6 +71,16 @@ assert.equal(executeCalls, 1);
 assert.throws(
   () => manager.sendInputToProcess(321, 'Remove-Item Z:\\ -Recurse -Force'),
   /Catastrophic directory deletion blocked/,
+);
+assert.equal(sendCalls, 0);
+
+assert.throws(
+  () =>
+    manager.sendInputToProcess(
+      321,
+      "cmd /c 'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
+    ),
+  /direct literal-path deletion command/i,
 );
 assert.equal(sendCalls, 0);
 

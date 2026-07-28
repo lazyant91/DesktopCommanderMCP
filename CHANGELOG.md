@@ -8,14 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- Added a bounded PowerShell/CMD directory deletion syntax guard for initial terminal commands and input sent to owned interactive sessions.
-- Added focused tests for routine deletions, malformed quoting, dynamic targets, unsupported options, chained commands, quoted literal paths, bounded CMD `@` prefixes, and filesystem-root targets including extended UNC share roots.
+- Added a bounded PowerShell/CMD directory deletion validator for initial terminal commands and input sent to owned interactive sessions.
+- Added focused coverage for routine direct deletions, malformed quoting, dynamic and multiple targets, unsupported options, chained commands, quoted literal paths, bounded CMD `@` prefixes, filesystem roots, compound control flow, command groups, and nested PowerShell/CMD interpreter payloads.
 
 ### Security
 
-- Filesystem-root targets are refused for every recognized PowerShell or CMD directory deletion form before the underlying command or interactive input is executed.
-- Dynamic or ambiguous directory targets are refused with an actionable error so routine cleanup can be retried with an explicit literal path.
-- The guard remains an accidental-error stop line rather than a sandbox or hostile-caller defense; nested interpreters, scripts, and non-shell filesystem APIs remain outside its scope.
+- Only direct directory deletion in the active shell with exactly one explicit literal target is allowed; filesystem roots and root wildcards are always refused before execution or stdin delivery.
+- Directory-delete intent inside PowerShell/CMD control flow or nested interpreters is refused rather than relying on an agent to reproduce cross-shell quoting and argument-conversion rules.
+- Dynamic, malformed, ambiguous, unsupported, or multi-target deletion commands return an actionable error and can be retried using the current shell's canonical direct deletion form.
+- The guard remains an accidental-error stop line rather than a sandbox or hostile-caller defense; script contents, encoded/generated commands, alternate deletion programs, and non-shell filesystem APIs remain outside its bounded inspection scope.
 
 ## [1.0.1] - 2026-07-27
 
