@@ -11,10 +11,11 @@
 ## Global Constraints
 
 - Keep ordinary file deletion and non-deletion terminal commands unchanged.
-- Support PowerShell `Remove-Item`, `rm`, `ri`, `rd`, and `rmdir` directory forms and CMD `rd` and `rmdir`.
-- Reject malformed quoting, unsupported deletion options, missing targets, and dynamic targets.
-- Reject filesystem-root targets in every recognized directory deletion form.
-- Apply the same check to initial process commands and input sent to owned PowerShell or CMD sessions.
+- Support PowerShell `Remove-Item`, `del`, `erase`, `rm`, `ri`, `rd`, and `rmdir` directory forms and CMD `rd` and `rmdir`.
+- Allow only one direct top-level deletion command with one static target; reject chained, compound, `call`, and nested-interpreter deletion.
+- Reject malformed quoting, unsupported shell escapes or options, missing or multiple targets, variables, wildcards, drive-relative paths, provider/expression syntax, and filesystem roots.
+- Apply the same check to initial process commands and input sent to owned PowerShell or CMD sessions; require fully qualified paths for interactive deletion input.
+- Track directly launched nested PowerShell/CMD sessions using their actual input shell and prune stale PID contexts.
 - Do not add a general PowerShell or CMD parser, sandbox, approval UI, or configurable root-delete bypass.
 
 ---

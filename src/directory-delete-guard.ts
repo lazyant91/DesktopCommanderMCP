@@ -4,8 +4,13 @@ export type DirectoryDeleteShell = 'powershell' | 'cmd' | 'other';
 export type DirectoryDeleteBlockReason =
   | 'invalid-syntax'
   | 'dynamic-target'
+  | 'ambiguous-target'
   | 'filesystem-root'
   | 'unsupported-context';
+
+export interface DirectoryDeleteValidationOptions {
+  requireFullyQualifiedTarget?: boolean;
+}
 
 export interface DirectoryDeleteValidation {
   detected: boolean;
@@ -27,7 +32,20 @@ interface ShellToken {
   quote?: "'" | '"';
 }
 
-const POWERSHELL_DELETE = new Set(['remove-item', 'rm', 'ri', 'rd', 'rmdir']);
+interface TargetCandidate {
+  token: ShellToken;
+  literalPath: boolean;
+}
+
+const POWERSHELL_DELETE = new Set([
+  'remove-item',
+  'del',
+  'erase',
+  'rm',
+  'ri',
+  'rd',
+  'rmdir',
+]);
 const POWERSHELL_DIRECTORY_ALIAS = new Set(['rd', 'rmdir']);
 const CMD_DELETE = new Set(['rd', 'rmdir']);
 const POWERSHELL_OUTPUT = new Set(['echo', 'write-host', 'write-output']);
@@ -71,10 +89,10 @@ export function classifyDirectoryDeleteShell(
   return name === 'cmd' || name === 'cmd.exe' ? 'cmd' : 'other';
 }
 
-function hasDeleteKeyword(command: string, shell: DirectoryDeleteShell): boolean {
-  const prefix = shell === 'cmd' ? '@?' : '';
+function hasDeleteKeyword(command: string, _shell: DirectoryDeleteShell): boolean {
+  const commands = 'remove-item|erase|rmdir|del|rm|ri|rd';
   const pattern = new RegExp(
-    `(?:^|[\\s;&|"'({])${prefix}(?:remove-item|rm|ri|rd|rmdir)(?=$|[\\s;&|"'})])`,
+    `(?:^|[^a-z0-9_.-])(?:${commands})(?=$|[^a-z0-9_.-])`,
     'i',
   );
   return pattern.test(command);
@@ -352,6 +370,17 @@ function hasNestedDirectoryDeleteIntent(
   return false;
 }
 
+function hasCmdCallDirectoryDeleteIntent(tokens: ShellToken[]): boolean {
+  const first = firstCommandIndex(tokens, 'cmd');
+  if (normalizedCommandName(tokens[first], 'cmd') !== 'call') return false;
+  const payload = tokens
+    .slice(first + 1)
+    .map((token) => token.value)
+    .join(' ')
+    .trim();
+  return Boolean(payload) && hasDirectoryDeleteIntent(payload, 'cmd');
+}
+
 function hasDirectoryDeleteIntent(
   segment: string,
   shell: DirectoryDeleteShell,
@@ -362,7 +391,8 @@ function hasDirectoryDeleteIntent(
   if (tokens.length === 0 || isOutputOnlySegment(tokens, shell)) return false;
   return (
     hasUnquotedDirectoryDeleteIntent(tokens, shell) ||
-    hasNestedDirectoryDeleteIntent(tokens, shell)
+    hasNestedDirectoryDeleteIntent(tokens, shell) ||
+    (shell === 'cmd' && hasCmdCallDirectoryDeleteIntent(tokens))
   );
 }
 
@@ -431,12 +461,23 @@ function rootTarget(target: string, cwd: string): { root: boolean; resolved: str
   };
 }
 
+function isFullyQualifiedFilesystemPath(target: string): boolean {
+  const normalized = target.trim().split('/').join('\\');
+  if (/^[a-z]:(?!\\)/i.test(normalized) || /^\\(?!\\)/.test(normalized)) {
+    return false;
+  }
+  return path.win32.isAbsolute(normalized);
+}
+
 function validateTarget(
-  targetToken: ShellToken,
+  candidate: TargetCandidate,
   shell: DirectoryDeleteShell,
   cwd: string,
+  options: DirectoryDeleteValidationOptions,
 ): DirectoryDeleteValidation | undefined {
+  const targetToken = candidate.token;
   const target = targetToken.value;
+  const normalized = target.trim().split('/').join('\\');
   const fullyQuoted = targetToken.quote !== undefined;
   const singleQuoted = targetToken.quote === "'";
   const dynamic =
@@ -455,20 +496,57 @@ function validateTarget(
   }
 
   const resolved = rootTarget(target, cwd);
-  return resolved.root
-    ? blocked(
-        shell,
-        'filesystem-root',
-        'Deleting a filesystem root is never allowed.',
-        target,
-        resolved.resolved,
-      )
-    : undefined;
+  if (resolved.root) {
+    return blocked(
+      shell,
+      'filesystem-root',
+      'Deleting a filesystem root is never allowed.',
+      target,
+      resolved.resolved,
+    );
+  }
+
+  const driveRelative = /^[a-z]:(?!\\)/i.test(normalized);
+  const extendedPath = /^\\\\[?.]\\/i.test(normalized);
+  const driveAbsolute = /^[a-z]:\\/i.test(normalized);
+  const unsupportedProvider =
+    normalized.includes(':') && !driveRelative && !driveAbsolute && !extendedPath;
+  const expressionSyntax =
+    shell === 'powershell' && !fullyQuoted && /[(){}]/.test(target);
+  const wildcardSyntax = !candidate.literalPath && /[*?\[\]]/.test(target);
+  const homeExpansion = /^~(?:[\\/]|$)/.test(target.trim());
+
+  if (
+    driveRelative ||
+    unsupportedProvider ||
+    expressionSyntax ||
+    wildcardSyntax ||
+    homeExpansion
+  ) {
+    return blocked(
+      shell,
+      'ambiguous-target',
+      'Use one static filesystem path without drive-relative notation, provider syntax, expressions, home expansion, or wildcards.',
+      target,
+    );
+  }
+
+  if (options.requireFullyQualifiedTarget && !isFullyQualifiedFilesystemPath(target)) {
+    return blocked(
+      shell,
+      'ambiguous-target',
+      'Interactive directory deletion requires one fully qualified filesystem path because the session working directory may have changed.',
+      target,
+    );
+  }
+
+  return undefined;
 }
 
 function validatePowerShell(
   segment: string,
   cwd: string,
+  options: DirectoryDeleteValidationOptions,
 ): DirectoryDeleteValidation | undefined {
   const parsed = tokenize(segment, 'powershell');
   if (parsed.error) return blocked('powershell', 'invalid-syntax', parsed.error);
@@ -476,7 +554,7 @@ function validatePowerShell(
   const command = basename(tokens[0]?.value ?? '');
   if (!POWERSHELL_DELETE.has(command)) return undefined;
 
-  const targets: ShellToken[] = [];
+  const targets: TargetCandidate[] = [];
   let recursive = false;
   const flags = new Set([
     '-force',
@@ -512,7 +590,7 @@ function validatePowerShell(
           `${value} requires a directory path.`,
         );
       }
-      targets.push(next);
+      targets.push({ token: next, literalPath: lower === '-literalpath' });
       i += 1;
     } else if (value.startsWith('-')) {
       return blocked(
@@ -521,7 +599,7 @@ function validatePowerShell(
         `Unsupported PowerShell deletion option: ${value}.`,
       );
     } else {
-      targets.push(token);
+      targets.push({ token, literalPath: false });
     }
   }
 
@@ -535,7 +613,7 @@ function validatePowerShell(
     );
   }
 
-  const roots = targets.map((target) => rootTarget(target.value, cwd));
+  const roots = targets.map((target) => rootTarget(target.token.value, cwd));
   if (
     !recursive &&
     !POWERSHELL_DIRECTORY_ALIAS.has(command) &&
@@ -544,13 +622,17 @@ function validatePowerShell(
     return undefined;
   }
   for (const target of targets) {
-    const failure = validateTarget(target, 'powershell', cwd);
+    const failure = validateTarget(target, 'powershell', cwd, options);
     if (failure) return failure;
   }
   return { detected: true, allowed: true, shell: 'powershell' };
 }
 
-function validateCmd(segment: string, cwd: string): DirectoryDeleteValidation | undefined {
+function validateCmd(
+  segment: string,
+  cwd: string,
+  options: DirectoryDeleteValidationOptions,
+): DirectoryDeleteValidation | undefined {
   const parsed = tokenize(segment, 'cmd');
   if (parsed.error) return blocked('cmd', 'invalid-syntax', parsed.error);
   const tokens = parsed.value ?? [];
@@ -565,7 +647,7 @@ function validateCmd(segment: string, cwd: string): DirectoryDeleteValidation | 
   }
   if (!CMD_DELETE.has(basename(commandToken))) return undefined;
 
-  const targets: ShellToken[] = [];
+  const targets: TargetCandidate[] = [];
   for (const token of tokens.slice(commandIndex + 1)) {
     const value = token.value;
     const lower = value.toLowerCase();
@@ -573,7 +655,7 @@ function validateCmd(segment: string, cwd: string): DirectoryDeleteValidation | 
     if (value.startsWith('/')) {
       return blocked('cmd', 'invalid-syntax', `Unsupported CMD deletion option: ${value}.`);
     }
-    targets.push(token);
+    targets.push({ token, literalPath: false });
   }
   if (targets.length !== 1) {
     return blocked(
@@ -585,7 +667,7 @@ function validateCmd(segment: string, cwd: string): DirectoryDeleteValidation | 
     );
   }
 
-  return validateTarget(targets[0], 'cmd', cwd) ?? {
+  return validateTarget(targets[0], 'cmd', cwd, options) ?? {
     detected: true,
     allowed: true,
     shell: 'cmd',
@@ -596,6 +678,7 @@ export function validateDirectoryDeleteCommand(
   command: string,
   shellPath: string | undefined,
   cwd = process.cwd(),
+  options: DirectoryDeleteValidationOptions = {},
 ): DirectoryDeleteValidation {
   const shell = classifyDirectoryDeleteShell(shellPath);
   if (shell === 'other') return { detected: false, allowed: true, shell };
@@ -608,14 +691,17 @@ export function validateDirectoryDeleteCommand(
   }
 
   let detected = false;
+  const commandSegments = segments.value ?? [];
   const compoundContext = hasCompoundGrouping(command, shell);
-  for (const segment of segments.value ?? []) {
+  for (const segment of commandSegments) {
     const result =
-      shell === 'powershell' ? validatePowerShell(segment, cwd) : validateCmd(segment, cwd);
+      shell === 'powershell'
+        ? validatePowerShell(segment, cwd, options)
+        : validateCmd(segment, cwd, options);
     if (result) {
       detected = true;
       if (!result.allowed) return result;
-      if (compoundContext && hasDirectoryDeleteIntent(segment, shell)) {
+      if (compoundContext || commandSegments.length !== 1) {
         return blocked(
           shell,
           'unsupported-context',

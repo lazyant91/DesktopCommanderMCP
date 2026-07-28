@@ -188,11 +188,13 @@ This is a thin accidental-use stop line, not a complete block, sandbox, or secur
 
 ### PowerShell and CMD directory delete guard
 
-Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks a bounded, deterministic grammar. Only a direct deletion in the active shell with exactly one explicit literal target can pass. Routine commands such as `Remove-Item -LiteralPath '.\dist' -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
+Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks a bounded, deterministic grammar. Only one direct deletion command in the active shell with exactly one static target can pass. Routine initial commands such as `Remove-Item -LiteralPath '.\dist' -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
 
-Malformed quoting, missing or multiple paths, unsupported deletion options, PowerShell variable targets, CMD environment-variable targets, filesystem roots, and root wildcards are refused before process creation or interactive stdin delivery. CMD `rd`/`rmdir` accepts one bounded leading echo-control prefix (`@rd` or `@ rd`).
+Malformed quoting, missing or multiple paths, unsupported options or shell escapes, variables, drive-relative paths such as `D:temp`, PowerShell provider or expression syntax, wildcard expansion, home expansion, filesystem roots, and root wildcards are refused before process creation or interactive stdin delivery. PowerShell recognizes the documented `Remove-Item`, `del`, `erase`, `rm`, `ri`, `rd`, and `rmdir` forms. CMD `rd`/`rmdir` accepts one bounded leading echo-control prefix (`@rd` or `@ rd`).
 
-Directory-delete intent inside PowerShell or CMD control flow, command groups, or nested interpreters is also refused. This includes PowerShell-to-CMD forms such as `cmd /c "rmdir ..."` and CMD-to-PowerShell forms such as `powershell -Command "Remove-Item ..."`, even when their final path appears static. Retry with one direct literal-path deletion command in the current shell; for PowerShell existence tolerance, use `-ErrorAction SilentlyContinue` instead of wrapping deletion in an `if` block.
+A deletion cannot share an input with another top-level command. Control flow, command groups, CMD `call`, and nested interpreter payloads such as `cmd /c "rmdir ..."` or `powershell -Command "Remove-Item ..."` are refused even when their target appears static. Retry with the current shell's direct form; for PowerShell existence tolerance, use `-ErrorAction SilentlyContinue` instead of an `if` block.
+
+Interactive PowerShell and CMD sessions require a fully qualified deletion target because a preceding `cd` or `Set-Location` may have changed the real working directory. Directly launched nested PowerShell or CMD sessions are tracked using the shell that receives later input, not merely the outer launch shell.
 
 This feature is an accidental-error guardrail, not a complete PowerShell/CMD parser, sandbox, or hostile-caller defense. Script files, encoded or generated commands, shell functions, alternate deletion programs, and Node.js or Python filesystem APIs remain outside its bounded inspection scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
 

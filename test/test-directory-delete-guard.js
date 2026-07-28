@@ -27,6 +27,8 @@ for (const command of [
   'Remove-Item \\\\.\\Z:\\ -Recurse -Force',
   'Remove-Item \\\\?\\UNC\\server\\share\\ -Recurse -Force',
   'rd D:\\ -Recurse',
+  'del Z:\\ -Recurse -Force',
+  'erase Z:\\ -Recurse -Force',
   'Write-Output ready; Remove-Item Z:\\ -Recurse -Force',
 ]) {
   const result = validateDirectoryDeleteCommand(command, 'powershell.exe', cwd);
@@ -54,13 +56,27 @@ for (const command of [
   'Remove-Item "$target" -Recurse -Force',
   'Remove-Item "Z:\\workspace\\temp -Recurse',
   'Remove-Item -Recurse',
+  '`Remove-Item Z:\\ -Recurse -Force',
   "Remove-Item 'Z:\\workspace\\one' 'Z:\\workspace\\two' -Recurse -Force",
+  "Remove-Item 'Z:\\workspace\\safe\\*' -Recurse -Force",
+  "Remove-Item ('D:\\') -Recurse -Force",
+  'Remove-Item D:temp -Recurse -Force',
+  'Remove-Item HKLM:\\Software\\Example -Recurse -Force',
   'rm -rf .\\dist',
 ]) {
   const result = validateDirectoryDeleteCommand(command, 'powershell.exe', cwd);
   assert.equal(result.detected, true, command);
   assert.equal(result.allowed, false, command);
 }
+
+assert.equal(
+  validateDirectoryDeleteCommand(
+    "Remove-Item -LiteralPath 'Z:\\workspace\\safe\\[archive]' -Recurse -Force",
+    'powershell.exe',
+    cwd,
+  ).allowed,
+  true,
+);
 
 for (const command of [
   'rd /s /q D:\\',
@@ -96,10 +112,37 @@ for (const command of [
   '@rd /s /q "Z:\\workspace\\temp',
   'rd /x Z:\\workspace\\temp',
   'rd /s /q',
+  '^rmdir /s /q Z:\\',
+  'rd /s /q D:temp',
+  'rd /s /q Z:\\workspace\\safe\\*',
 ]) {
   const result = validateDirectoryDeleteCommand(command, 'cmd.exe', cwd);
   assert.equal(result.detected, true, command);
   assert.equal(result.allowed, false, command);
+}
+
+for (const [command, shell] of [
+  ["Set-Location D:\\; Remove-Item . -Recurse -Force", 'powershell.exe'],
+  ["Write-Output ready; Remove-Item 'Z:\\workspace\\safe' -Recurse -Force", 'powershell.exe'],
+  ['cd /d D:\\ & rd /s /q .', 'cmd.exe'],
+  ['echo ready & rd /s /q Z:\\workspace\\safe', 'cmd.exe'],
+]) {
+  const result = validateDirectoryDeleteCommand(command, shell, cwd);
+  assert.equal(result.detected, true, command);
+  assert.equal(result.allowed, false, command);
+  assert.equal(result.reason, 'unsupported-context', command);
+}
+
+for (const [command, shell] of [
+  ['Remove-Item .\\temp -Recurse -Force', 'powershell.exe'],
+  ['rd /s /q .\\temp', 'cmd.exe'],
+]) {
+  const result = validateDirectoryDeleteCommand(command, shell, cwd, {
+    requireFullyQualifiedTarget: true,
+  });
+  assert.equal(result.detected, true, command);
+  assert.equal(result.allowed, false, command);
+  assert.equal(result.reason, 'ambiguous-target', command);
 }
 
 for (const command of [
@@ -107,6 +150,7 @@ for (const command of [
   "cmd /c 'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
   "cmd.exe /d /s /c 'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
   "cmd.exe /d /s /c'rmdir /s /q \"D:\\AI\\project\\.worktrees\\feature\"'",
+  'cmd.exe /c^"rmdir /s /q Z:\\"',
   "if (Test-Path -LiteralPath 'D:\\AI\\project\\.worktrees\\feature') { Remove-Item -LiteralPath 'D:\\AI\\project\\.worktrees\\feature' -Recurse -Force }",
   String.raw`if (Test-Path -LiteralPath 'D:\AI\project\.worktrees\feature') {
     Remove-Item -LiteralPath 'D:\AI\project\.worktrees\feature' -Recurse -Force
@@ -120,6 +164,8 @@ for (const command of [
 }
 
 for (const command of [
+  'call rd /s /q "D:\\AI\\project\\.worktrees\\feature"',
+  'call powershell.exe -Command "Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
   'powershell.exe -Command "Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
   'powershell.exe -NoProfile -NonInteractive -Command "Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
   'powershell.exe -NoProfile -Command"Remove-Item -LiteralPath \'D:\\AI\\project\\.worktrees\\feature\' -Recurse -Force"',
@@ -166,6 +212,7 @@ for (const command of [
 
 for (const command of [
   'echo rmdir /s /q D:\\temp',
+  'call echo rmdir /s /q D:\\temp',
   'dir rmdir',
   'powershell.exe -Command "Write-Output ready"',
   'powershell.exe -Command "Write-Output rmdir"',

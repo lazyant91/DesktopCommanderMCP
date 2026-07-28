@@ -17,10 +17,12 @@ The safety decision must not depend on an agent correctly remembering PowerShell
 ## Goals
 
 - Inspect commands before `executeCommand` or `sendInputToProcess` forwards them.
-- Continue allowing documented direct PowerShell and CMD directory deletion forms with one explicit literal target.
-- Detect directory-delete intent that appears in compound statements or nested PowerShell/CMD interpreter payloads.
+- Continue allowing documented direct PowerShell and CMD directory deletion forms with one static target.
+- Detect directory-delete intent that appears in chained commands, compound statements, CMD `call`, or nested PowerShell/CMD interpreter payloads.
 - Reject deletion intent that is not fully consumed by the supported direct grammar.
-- Reject malformed quoting, shell escapes, variables, multiple targets, unsupported options, and filesystem roots.
+- Reject malformed quoting, shell escapes, variables, multiple targets, ambiguous filesystem notation, wildcard expansion, and filesystem roots.
+- Require fully qualified deletion targets for interactive shell input because the live session working directory may have changed.
+- Track directly launched nested PowerShell/CMD sessions using the shell that receives later input and prune stale PID contexts.
 - Return an actionable error that asks the caller to retry with the current shell's canonical direct deletion form.
 
 ## Non-goals
@@ -104,7 +106,7 @@ echo rmdir /s /q D:\temp
 
 Add an `unsupported-context` block reason. The formatted error states that deletion was detected in compound or nested shell syntax and that no command was executed. It recommends one direct literal-path deletion command in the active shell.
 
-Malformed commands continue to use `invalid-syntax`; dynamic targets use `dynamic-target`; root targets use `filesystem-root`.
+Malformed commands continue to use `invalid-syntax`; variable-expanded targets use `dynamic-target`; drive-relative, provider, expression, wildcard, home-expanded, or interactive-relative targets use `ambiguous-target`; root targets use `filesystem-root`.
 
 ## Testing
 
