@@ -44,8 +44,8 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 
 ## Known limitations
 
-- The PowerShell/CMD directory delete guard is an accidental-error stop line. It recognizes documented direct `Remove-Item`, `rm`, `ri`, `rd`, and `rmdir` directory forms for PowerShell and direct `rd` and `rmdir` forms for CMD.
-- The directory delete guard does not inspect nested interpreters, script files, Node.js or Python filesystem APIs, shell functions, or commands executed by other programs. It is not a sandbox or hostile-caller defense.
+- The PowerShell/CMD directory delete guard is an accidental-error stop line. It recognizes documented direct `Remove-Item`, `rm`, `ri`, `rd`, and `rmdir` directory forms for PowerShell and direct `rd` and `rmdir` forms for CMD, including one bounded leading CMD echo-control prefix (`@rd` or `@ rd`).
+- The directory delete guard does not inspect parenthesized CMD command groups, nested interpreters, script files, Node.js or Python filesystem APIs, shell functions, or commands executed by other programs. It is not a sandbox or hostile-caller defense.
 - Dynamic directory targets such as PowerShell variables and CMD environment-variable expansion are rejected so the target can be checked before execution. Use an explicit literal path for guarded directory deletion.
 - Interactive input is checked only for PowerShell or CMD sessions started through this server after the guard is installed. Relative paths are resolved from the session's starting working directory rather than tracking later `cd` or `Set-Location` changes.
 - The thin Codex reminder inspects only the documented first-position `start_process` forms. It does not inspect chained or multiline-later commands, aliases, wrappers, scripts, environment prefixes, hostile bypasses, or input sent through `interact_with_process`; it is a thin accidental-use stop line, not a complete block or security boundary.

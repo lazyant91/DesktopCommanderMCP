@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - Added a bounded PowerShell/CMD directory deletion syntax guard for initial terminal commands and input sent to owned interactive sessions.
-- Added focused tests for routine deletions, malformed quoting, dynamic targets, unsupported options, chained commands, and filesystem-root targets.
+- Added focused tests for routine deletions, malformed quoting, dynamic targets, unsupported options, chained commands, quoted literal paths, bounded CMD `@` prefixes, and filesystem-root targets including extended UNC share roots.
 
 ### Security
 

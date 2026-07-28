@@ -21,6 +21,11 @@ interface ParseResult<T> {
   error?: string;
 }
 
+interface ShellToken {
+  value: string;
+  quote?: "'" | '"';
+}
+
 const POWERSHELL_DELETE = new Set(['remove-item', 'rm', 'ri', 'rd', 'rmdir']);
 const POWERSHELL_DIRECTORY_ALIAS = new Set(['rd', 'rmdir']);
 const CMD_DELETE = new Set(['rd', 'rmdir']);
@@ -43,7 +48,7 @@ function hasDeleteKeyword(command: string, shell: DirectoryDeleteShell): boolean
   const pattern =
     shell === 'powershell'
       ? /(?:^|[\s;&|])(?:remove-item|rm|ri|rd|rmdir)(?=$|[\s;&|])/i
-      : /(?:^|[\s&|])(?:rd|rmdir)(?=$|[\s&|])/i;
+      : /(?:^|[\s&|])@?(?:rd|rmdir)(?=$|[\s&|])/i;
   return pattern.test(command);
 }
 
@@ -109,17 +114,25 @@ function splitSegments(
   return { value: segments };
 }
 
-function tokenize(segment: string, shell: DirectoryDeleteShell): ParseResult<string[]> {
-  const tokens: string[] = [];
+function tokenize(segment: string, shell: DirectoryDeleteShell): ParseResult<ShellToken[]> {
+  const tokens: ShellToken[] = [];
   let current = '';
   let started = false;
-  let quote: string | undefined;
+  let quote: "'" | '"' | undefined;
+  let hasUnquoted = false;
+  const quoteKinds = new Set<"'" | '"'>();
 
   const flush = () => {
     if (!started) return;
-    tokens.push(current);
+    const tokenQuote =
+      !hasUnquoted && quoteKinds.size === 1
+        ? quoteKinds.values().next().value
+        : undefined;
+    tokens.push({ value: current, quote: tokenQuote });
     current = '';
     started = false;
+    hasUnquoted = false;
+    quoteKinds.clear();
   };
 
   for (let i = 0; i < segment.length; i += 1) {
@@ -152,6 +165,7 @@ function tokenize(segment: string, shell: DirectoryDeleteShell): ParseResult<str
       (shell === 'cmd' && char === '"')
     ) {
       quote = char;
+      quoteKinds.add(char);
       started = true;
     } else if (
       (shell === 'powershell' && char === '`') ||
@@ -165,6 +179,7 @@ function tokenize(segment: string, shell: DirectoryDeleteShell): ParseResult<str
     } else {
       current += char;
       started = true;
+      hasUnquoted = true;
     }
   }
 
@@ -191,6 +206,8 @@ function rootTarget(target: string, cwd: string): { root: boolean; resolved: str
   const directRoot = /^[a-z]:(?:[\\.]?)$/i.test(input);
   const driveWildcard = /^[a-z]:\\(?:\*|\*\.\*)\\?$/i.test(input);
   const uncRoot = /^\\\\[^\\]+\\[^\\]+\\?(?:\*|\*\.\*)?$/i.test(input);
+  const extendedUncRoot =
+    /^\\\\[?.]\\UNC\\[^\\]+\\[^\\]+\\?(?:\*|\*\.\*)?$/i.test(input);
   const normalized = path.win32.normalize(resolved);
   const parsedRoot = path.win32.normalize(path.win32.parse(normalized).root);
   return {
@@ -198,20 +215,25 @@ function rootTarget(target: string, cwd: string): { root: boolean; resolved: str
       directRoot ||
       driveWildcard ||
       uncRoot ||
+      extendedUncRoot ||
       normalized.toLowerCase() === parsedRoot.toLowerCase(),
     resolved,
   };
 }
 
 function validateTarget(
-  target: string,
+  targetToken: ShellToken,
   shell: DirectoryDeleteShell,
   cwd: string,
 ): DirectoryDeleteValidation | undefined {
+  const target = targetToken.value;
+  const fullyQuoted = targetToken.quote !== undefined;
+  const singleQuoted = targetToken.quote === "'";
   const dynamic =
     !target ||
     (shell === 'powershell'
-      ? target.includes('$') || target.startsWith('@(') || target.includes(',')
+      ? (!singleQuoted && target.includes('$')) ||
+        (!fullyQuoted && (target.startsWith('@(') || target.includes(',')))
       : target.includes('%') || target.includes('!'));
   if (dynamic) {
     return blocked(
@@ -241,10 +263,10 @@ function validatePowerShell(
   const parsed = tokenize(segment, 'powershell');
   if (parsed.error) return blocked('powershell', 'invalid-syntax', parsed.error);
   const tokens = parsed.value ?? [];
-  const command = basename(tokens[0] ?? '');
+  const command = basename(tokens[0]?.value ?? '');
   if (!POWERSHELL_DELETE.has(command)) return undefined;
 
-  const targets: string[] = [];
+  const targets: ShellToken[] = [];
   let recursive = false;
   const flags = new Set([
     '-force',
@@ -259,31 +281,34 @@ function validatePowerShell(
 
   for (let i = 1; i < tokens.length; i += 1) {
     const token = tokens[i];
-    const lower = token.toLowerCase();
+    const value = token.value;
+    const lower = value.toLowerCase();
     if (lower === '-recurse' || lower === '-r') {
       recursive = true;
     } else if (flags.has(lower)) {
       continue;
     } else if (valueOptions.has(lower)) {
-      if (!tokens[i + 1] || tokens[i + 1].startsWith('-')) {
-        return blocked('powershell', 'invalid-syntax', `${token} requires a value.`);
+      const next = tokens[i + 1];
+      if (!next || next.value.startsWith('-')) {
+        return blocked('powershell', 'invalid-syntax', `${value} requires a value.`);
       }
       i += 1;
     } else if (pathOptions.has(lower)) {
-      if (!tokens[i + 1] || tokens[i + 1].startsWith('-')) {
+      const next = tokens[i + 1];
+      if (!next || next.value.startsWith('-')) {
         return blocked(
           'powershell',
           'invalid-syntax',
-          `${token} requires a directory path.`,
+          `${value} requires a directory path.`,
         );
       }
-      targets.push(tokens[i + 1]);
+      targets.push(next);
       i += 1;
-    } else if (token.startsWith('-')) {
+    } else if (value.startsWith('-')) {
       return blocked(
         'powershell',
         'invalid-syntax',
-        `Unsupported PowerShell deletion option: ${token}.`,
+        `Unsupported PowerShell deletion option: ${value}.`,
       );
     } else {
       targets.push(token);
@@ -298,7 +323,7 @@ function validatePowerShell(
     );
   }
 
-  const roots = targets.map((target) => rootTarget(target, cwd));
+  const roots = targets.map((target) => rootTarget(target.value, cwd));
   if (
     !recursive &&
     !POWERSHELL_DIRECTORY_ALIAS.has(command) &&
@@ -317,14 +342,24 @@ function validateCmd(segment: string, cwd: string): DirectoryDeleteValidation | 
   const parsed = tokenize(segment, 'cmd');
   if (parsed.error) return blocked('cmd', 'invalid-syntax', parsed.error);
   const tokens = parsed.value ?? [];
-  if (!CMD_DELETE.has(basename(tokens[0] ?? ''))) return undefined;
 
-  const targets: string[] = [];
-  for (const token of tokens.slice(1)) {
-    const lower = token.toLowerCase();
+  let commandIndex = 0;
+  let commandToken = tokens[0]?.value ?? '';
+  if (commandToken === '@') {
+    commandIndex = 1;
+    commandToken = tokens[commandIndex]?.value ?? '';
+  } else if (commandToken.startsWith('@')) {
+    commandToken = commandToken.slice(1);
+  }
+  if (!CMD_DELETE.has(basename(commandToken))) return undefined;
+
+  const targets: ShellToken[] = [];
+  for (const token of tokens.slice(commandIndex + 1)) {
+    const value = token.value;
+    const lower = value.toLowerCase();
     if (lower === '/s' || lower === '/q') continue;
-    if (token.startsWith('/')) {
-      return blocked('cmd', 'invalid-syntax', `Unsupported CMD deletion option: ${token}.`);
+    if (value.startsWith('/')) {
+      return blocked('cmd', 'invalid-syntax', `Unsupported CMD deletion option: ${value}.`);
     }
     targets.push(token);
   }

@@ -190,9 +190,9 @@ This is a thin accidental-use stop line, not a complete block, sandbox, or secur
 
 Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks its bounded supported syntax and resolves each literal target path. Routine explicit deletions such as `Remove-Item .\dist -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
 
-Malformed quoting, missing paths, unsupported deletion options, PowerShell variable targets, and CMD environment-variable targets are refused with an actionable error. Any target that resolves to a drive root, filesystem root, or UNC share root is always refused. The same check is applied to input sent to owned PowerShell or CMD sessions.
+Malformed quoting, missing paths, unsupported deletion options, PowerShell variable targets, and CMD environment-variable targets are refused with an actionable error. Any target that resolves to a drive root, filesystem root, or UNC share root is always refused. CMD `rd`/`rmdir` also accepts one bounded leading echo-control prefix (`@rd` or `@ rd`). The same check is applied to input sent to owned PowerShell or CMD sessions.
 
-This feature is an accidental-error guardrail, not a general shell parser, sandbox, or hostile-caller defense. Nested interpreters, scripts, Node.js or Python filesystem APIs, and other indirect deletion mechanisms remain outside its scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
+This feature is an accidental-error guardrail, not a general shell parser, sandbox, or hostile-caller defense. Parenthesized CMD command groups, nested interpreters, scripts, Node.js or Python filesystem APIs, and other indirect deletion mechanisms remain outside its scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
 
 ### Terminal sessions
 
