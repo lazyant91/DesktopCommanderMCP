@@ -25,6 +25,7 @@ The server has no built-in hosted backend, account system, telemetry transport, 
 | Canonical path checks | Reduce common symlink and ancestor path escapes | No |
 | Exact edit matching | Prevent ambiguous text replacements | No |
 | Thin direct Codex reminder | Reduce accidental local Codex starts through `start_process` | No |
+| PowerShell/CMD directory delete guard | Allow only direct single-literal directory deletions and reject ambiguous, compound, nested, dynamic, or root-target forms | No |
 | Owned process sessions | Prevent public tools from terminating arbitrary host PIDs | Partial guardrail |
 | Separate OS account or virtual machine | Isolate the server from other user resources | Yes, subject to host configuration |
 
@@ -43,6 +44,11 @@ Terminal execution is intentionally open-ended. A command can invoke another int
 
 ## Known limitations
 
+- The PowerShell/CMD directory delete guard is an accidental-error stop line. It permits only one direct top-level deletion command with exactly one static target. Supported PowerShell forms are `Remove-Item`, `del`, `erase`, `rm`, `ri`, `rd`, and `rmdir`; supported CMD forms are `rd` and `rmdir`, with one bounded leading echo-control prefix (`@rd` or `@ rd`).
+- Directory-delete intent found in chained commands, PowerShell/CMD control flow, command groups, CMD `call`, or nested `cmd`/`powershell`/`pwsh` interpreter payloads is rejected rather than reinterpreted. This intentionally blocks static-looking cross-shell deletion commands as well as dynamic ones.
+- Variables, malformed quoting, unsupported shell escapes or options, multiple targets, drive-relative paths, PowerShell provider or expression syntax, home expansion, wildcard expansion, filesystem roots, and root wildcards are rejected so the final target does not depend on agent reasoning or mutable shell state.
+- Interactive PowerShell and CMD input requires a fully qualified filesystem target because a previous `cd` or `Set-Location` may have changed the actual working directory. A directly launched nested PowerShell or CMD session is tracked using the shell that receives subsequent input, and stale session contexts are pruned before later checks.
+- The guard does not inspect script-file contents, encoded or generated commands, shell functions, alternate deletion programs, Node.js or Python filesystem APIs, or commands hidden by arbitrary code generation. It is not a sandbox or hostile-caller defense.
 - The thin Codex reminder inspects only the documented first-position `start_process` forms. It does not inspect chained or multiline-later commands, aliases, wrappers, scripts, environment prefixes, hostile bypasses, or input sent through `interact_with_process`; it is a thin accidental-use stop line, not a complete block or security boundary.
 - `allowedDirectories` does not constrain arbitrary terminal commands.
 - Command-name filtering can be bypassed through scripts, aliases, alternate interpreters, absolute paths, or shell composition.

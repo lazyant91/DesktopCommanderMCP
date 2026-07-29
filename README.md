@@ -186,6 +186,18 @@ Use `get_config` and `set_config_value` while the server is running. Configurati
 
 This is a thin accidental-use stop line, not a complete block, sandbox, or security boundary. It does not inspect chained or later commands, multiline second commands, environment prefixes, CMD `@`, aliases, wrappers, scripts, versioned package specs, or input sent through `interact_with_process`. A human-direct Codex session started separately in a local terminal is untouched.
 
+### PowerShell and CMD directory delete guard
+
+Before a recognized PowerShell or CMD directory deletion reaches the underlying shell, the server checks a bounded, deterministic grammar. Only one direct deletion command in the active shell with exactly one static target can pass. Routine initial commands such as `Remove-Item -LiteralPath '.\dist' -Recurse -Force` and `rd /s /q "D:\work\project\temp"` continue normally.
+
+Malformed quoting, missing or multiple paths, unsupported options or shell escapes, variables, drive-relative paths such as `D:temp`, PowerShell provider or expression syntax, wildcard expansion, home expansion, filesystem roots, and root wildcards are refused before process creation or interactive stdin delivery. PowerShell recognizes the documented `Remove-Item`, `del`, `erase`, `rm`, `ri`, `rd`, and `rmdir` forms. CMD `rd`/`rmdir` accepts one bounded leading echo-control prefix (`@rd` or `@ rd`).
+
+A deletion cannot share an input with another top-level command. Control flow, command groups, CMD `call`, and nested interpreter payloads such as `cmd /c "rmdir ..."` or `powershell -Command "Remove-Item ..."` are refused even when their target appears static. Retry with the current shell's direct form; for PowerShell existence tolerance, use `-ErrorAction SilentlyContinue` instead of an `if` block.
+
+Interactive PowerShell and CMD sessions require a fully qualified deletion target because a preceding `cd` or `Set-Location` may have changed the real working directory. Directly launched nested PowerShell or CMD sessions are tracked using the shell that receives later input, not merely the outer launch shell.
+
+This feature is an accidental-error guardrail, not a complete PowerShell/CMD parser, sandbox, or hostile-caller defense. Script files, encoded or generated commands, shell functions, alternate deletion programs, and Node.js or Python filesystem APIs remain outside its bounded inspection scope. See [SECURITY.md](SECURITY.md) for the exact boundary.
+
 ### Terminal sessions
 
 `start_process` returns initial output and a server-owned session identifier. A command can continue running after the initial timeout and later be observed with `read_process_output`. Interactive shells and REPLs can receive input through `interact_with_process`.

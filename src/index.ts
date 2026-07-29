@@ -7,8 +7,10 @@ import { FilteredStdioServerTransport } from './custom-stdio.js';
 import { server, flushDeferredMessages } from './server.js';
 import { commandManager } from './command-manager.js';
 import { configManager } from './config-manager.js';
+import { installDirectoryDeleteGuard } from './directory-delete-guard-runtime.js';
 import { logger } from './utils/logger.js';
 
+installDirectoryDeleteGuard();
 void commandManager;
 
 const deferredMessages: Array<{ level: string; message: string }> = [];
